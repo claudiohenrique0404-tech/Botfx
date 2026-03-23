@@ -1,4 +1,4 @@
-import { createHmac } from “node:crypto”;
+import { createHmac } from "node:crypto";
 
 function sign(ts, method, path, body, secret) {
 return createHmac(“sha256”, secret)
