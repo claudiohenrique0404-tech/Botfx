@@ -1,28 +1,18 @@
-“use strict”;
-var crypto = require(“crypto”);
+import { createHmac } from “node:crypto”;
 
 function sign(ts, method, path, body, secret) {
-return crypto.createHmac(“sha256”, secret)
+return createHmac(“sha256”, secret)
 .update(ts + method.toUpperCase() + path + (body || “”))
 .digest(“base64”);
 }
 
-var STOCKS = [“NVDA”,“TSLA”,“AAPL”,“META”,“GOOGL”,“MSFT”,“AMZN”,“NFLX”,“AMD”,“INTC”,“COIN”,“MSTR”,“MA”,“LLY”,“PLTR”,“MCD”,“QQQ”,“GME”,“MRVL”,“RIOT”,“ORCL”,“CRCL”];
+const STOCKS = [“NVDA”,“TSLA”,“AAPL”,“META”,“GOOGL”,“MSFT”,“AMZN”,“NFLX”,“AMD”,“INTC”,“COIN”,“MSTR”,“MA”,“LLY”,“PLTR”,“MCD”,“QQQ”,“GME”,“MRVL”,“RIOT”,“ORCL”,“CRCL”];
+const isStock = s => STOCKS.some(x => (s||””).toUpperCase().startsWith(x));
+const getPT = (s, o) => o ? o.toLowerCase() : isStock(s) ? “susdt-futures” : “usdt-futures”;
+const BASE = “https://api.bitget.com”;
 
-function isStock(s) {
-for (var i = 0; i < STOCKS.length; i++) {
-if ((s || “”).toUpperCase().indexOf(STOCKS[i]) === 0) return true;
-}
-return false;
-}
-
-function getPT(s, o) {
-if (o) return o.toLowerCase();
-return isStock(s) ? “susdt-futures” : “usdt-futures”;
-}
-
-function makeHeaders(method, path, body, KEY, SEC, PASS) {
-var ts = Date.now().toString();
+function makeHdrs(method, path, body, KEY, SEC, PASS) {
+const ts = Date.now().toString();
 return {
 “ACCESS-KEY”: KEY,
 “ACCESS-SIGN”: sign(ts, method, path, body || “”, SEC),
@@ -33,160 +23,88 @@ return {
 };
 }
 
-var BASE = “https://api.bitget.com”;
-
-exports.handler = async function(event) {
-var headers = {
+const CORS = {
 “Access-Control-Allow-Origin”: “*”,
 “Access-Control-Allow-Methods”: “POST, OPTIONS”,
 “Access-Control-Allow-Headers”: “Content-Type”,
 “Content-Type”: “application/json”
 };
 
-if (event.httpMethod === “OPTIONS”) {
-return { statusCode: 200, headers: headers, body: “” };
-}
+export default async (req) => {
+if (req.method === “OPTIONS”) return new Response(””, { status: 200, headers: CORS });
 
-var KEY = process.env.BITGET_API_KEY;
-var SEC = process.env.BITGET_API_SECRET;
-var PASS = process.env.BITGET_PASSPHRASE;
+const KEY  = process.env.BITGET_API_KEY;
+const SEC  = process.env.BITGET_API_SECRET;
+const PASS = process.env.BITGET_PASSPHRASE;
 
-if (!KEY || !SEC || !PASS) {
-return { statusCode: 500, headers: headers, body: JSON.stringify({ error: “API keys missing” }) };
-}
+if (!KEY || !SEC || !PASS) return new Response(JSON.stringify({ error: “API keys missing” }), { status: 500, headers: CORS });
 
-async function bg(method, path, body) {
-var bs = body ? JSON.stringify(body) : undefined;
-var r = await fetch(BASE + path, {
-method: method,
-headers: makeHeaders(method, path, bs || “”, KEY, SEC, PASS),
-body: bs
-});
-var d = await r.json();
-if (d && d.code && d.code !== “00000”) {
-throw new Error(d.code + “: “ + d.msg);
-}
+const bg = async (method, path, body) => {
+const bs = body ? JSON.stringify(body) : undefined;
+const r = await fetch(BASE + path, { method, headers: makeHdrs(method, path, bs || “”, KEY, SEC, PASS), body: bs });
+const d = await r.json();
+if (d?.code && d.code !== “00000”) throw new Error(d.code + “: “ + d.msg);
 return d;
-}
+};
 
 try {
-var data = JSON.parse(event.body || “{}”);
-var action = data.action;
-var p = Object.assign({}, data);
-delete p.action;
-var result;
+const { action, …p } = await req.json();
+let result;
 
 ```
 if (action === "ping") {
   result = { ok: true };
-
 } else if (action === "account") {
   result = await bg("GET", "/api/v2/mix/account/accounts?productType=usdt-futures");
-
 } else if (action === "prices") {
-  var syms = p.symbols || ["BTCUSDT"];
-  var pt = getPT(syms[0], p.productType);
-  var priceResults = await Promise.all(syms.map(async function(sym) {
+  const syms = p.symbols || ["BTCUSDT"];
+  const pt = getPT(syms[0], p.productType);
+  const out = await Promise.all(syms.map(async sym => {
     try {
-      var r = await fetch(BASE + "/api/v2/mix/market/symbol-price?productType=" + pt + "&symbol=" + sym);
-      var d = await r.json();
-      if (!d || d.code !== "00000") return { symbol: sym, price: "0" };
-      var item = Array.isArray(d.data) ? d.data[0] : d.data;
-      return { symbol: sym, price: (item && (item.price || item.indexPrice)) || "0" };
-    } catch(e) {
-      return { symbol: sym, price: "0" };
-    }
+      const r = await fetch(`${BASE}/api/v2/mix/market/symbol-price?productType=${pt}&symbol=${sym}`);
+      const d = await r.json();
+      if (d?.code !== "00000") return { symbol: sym, price: "0" };
+      const item = Array.isArray(d.data) ? d.data[0] : d.data;
+      return { symbol: sym, price: item?.price || item?.indexPrice || "0" };
+    } catch { return { symbol: sym, price: "0" }; }
   }));
-  result = priceResults.filter(function(x) { return parseFloat(x.price) > 0; });
-
+  result = out.filter(x => parseFloat(x.price) > 0);
 } else if (action === "positions") {
-  var u = await bg("GET", "/api/v2/mix/position/all-position?productType=usdt-futures&marginCoin=USDT");
-  var s;
-  try {
-    s = await bg("GET", "/api/v2/mix/position/all-position?productType=susdt-futures&marginCoin=USDT");
-  } catch(e) {
-    s = { data: [] };
-  }
-  var allPos = (u.data || []).concat(s.data || []);
-  result = allPos.filter(function(x) { return parseFloat(x.total) > 0; });
-
+  const [u, s] = await Promise.all([
+    bg("GET", "/api/v2/mix/position/all-position?productType=usdt-futures&marginCoin=USDT"),
+    bg("GET", "/api/v2/mix/position/all-position?productType=susdt-futures&marginCoin=USDT").catch(() => ({ data: [] }))
+  ]);
+  result = [...(u?.data||[]), ...(s?.data||[])].filter(x => parseFloat(x.total) > 0);
 } else if (action === "order") {
-  var symbol = p.symbol;
-  var side = p.side;
-  var quantity = p.quantity;
-  var stopLoss = p.stopLoss;
-  var takeProfit = p.takeProfit;
-  var leverage = p.leverage;
-  var pt2 = getPT(symbol, p.productType);
-  var pos = side === "BUY" ? "long" : "short";
-  var lev = isStock(symbol) ? Math.min(parseInt(leverage) || 5, 10) : parseInt(leverage) || 5;
-
-  try {
-    await bg("POST", "/api/v2/mix/account/set-leverage", {
-      symbol: symbol, productType: pt2, marginCoin: "USDT",
-      leverage: String(lev), holdSide: pos
-    });
-  } catch(e) { console.log("lev:", e.message); }
-
-  await new Promise(function(resolve) { setTimeout(resolve, 300); });
-
-  var order = await bg("POST", "/api/v2/mix/order/place-order", {
-    symbol: symbol, productType: pt2, marginCoin: "USDT",
-    side: side === "BUY" ? "buy" : "sell",
-    tradeSide: "open", orderType: "market",
-    size: String(quantity), leverage: String(lev)
-  });
-
-  if (order && order.data && order.data.orderId) {
-    await new Promise(function(resolve) { setTimeout(resolve, 300); });
-    if (stopLoss) {
-      try {
-        await bg("POST", "/api/v2/mix/order/place-tpsl-order", {
-          symbol: symbol, productType: pt2, marginCoin: "USDT",
-          planType: "loss_plan", holdSide: pos,
-          triggerPrice: String(stopLoss), triggerType: "mark_price",
-          executePrice: "0", size: String(quantity)
-        });
-      } catch(e) { console.log("SL:", e.message); }
-    }
-    if (takeProfit) {
-      try {
-        await bg("POST", "/api/v2/mix/order/place-tpsl-order", {
-          symbol: symbol, productType: pt2, marginCoin: "USDT",
-          planType: "profit_plan", holdSide: pos,
-          triggerPrice: String(takeProfit), triggerType: "mark_price",
-          executePrice: "0", size: String(quantity)
-        });
-      } catch(e) { console.log("TP:", e.message); }
-    }
+  const { symbol, side, quantity, stopLoss, takeProfit, leverage } = p;
+  const pt = getPT(symbol, p.productType);
+  const pos = side === "BUY" ? "long" : "short";
+  const lev = isStock(symbol) ? Math.min(parseInt(leverage)||5, 10) : parseInt(leverage)||5;
+  await bg("POST", "/api/v2/mix/account/set-leverage", { symbol, productType: pt, marginCoin: "USDT", leverage: String(lev), holdSide: pos }).catch(() => {});
+  await new Promise(r => setTimeout(r, 300));
+  const order = await bg("POST", "/api/v2/mix/order/place-order", { symbol, productType: pt, marginCoin: "USDT", side: side === "BUY" ? "buy" : "sell", tradeSide: "open", orderType: "market", size: String(quantity), leverage: String(lev) });
+  if (order?.data?.orderId) {
+    await new Promise(r => setTimeout(r, 300));
+    if (stopLoss) await bg("POST", "/api/v2/mix/order/place-tpsl-order", { symbol, productType: pt, marginCoin: "USDT", planType: "loss_plan", holdSide: pos, triggerPrice: String(stopLoss), triggerType: "mark_price", executePrice: "0", size: String(quantity) }).catch(() => {});
+    if (takeProfit) await bg("POST", "/api/v2/mix/order/place-tpsl-order", { symbol, productType: pt, marginCoin: "USDT", planType: "profit_plan", holdSide: pos, triggerPrice: String(takeProfit), triggerType: "mark_price", executePrice: "0", size: String(quantity) }).catch(() => {});
   }
   result = order;
-
 } else if (action === "closePosition") {
-  var cSym = p.symbol;
-  var cSide = p.side;
-  var cQty = p.quantity;
-  result = await bg("POST", "/api/v2/mix/order/place-order", {
-    symbol: cSym, productType: getPT(cSym, p.productType), marginCoin: "USDT",
-    side: cSide === "LONG" ? "sell" : "buy",
-    tradeSide: "close", orderType: "market",
-    size: String(Math.abs(parseFloat(cQty)))
-  });
-
+  const { symbol, side, quantity } = p;
+  result = await bg("POST", "/api/v2/mix/order/place-order", { symbol, productType: getPT(symbol, p.productType), marginCoin: "USDT", side: side === "LONG" ? "sell" : "buy", tradeSide: "close", orderType: "market", size: String(Math.abs(parseFloat(quantity))) });
 } else if (action === "cancelAll") {
-  try { await bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "usdt-futures", marginCoin: "USDT" }); } catch(e) {}
-  try { await bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "susdt-futures", marginCoin: "USDT" }); } catch(e) {}
+  await Promise.all([bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "usdt-futures", marginCoin: "USDT" }), bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "susdt-futures", marginCoin: "USDT" }).catch(() => {})]);
   result = { ok: true };
-
 } else {
-  return { statusCode: 400, headers: headers, body: JSON.stringify({ error: "Unknown: " + action }) };
+  return new Response(JSON.stringify({ error: "Unknown: " + action }), { status: 400, headers: CORS });
 }
 
-return { statusCode: 200, headers: headers, body: JSON.stringify(result) };
+return new Response(JSON.stringify(result), { status: 200, headers: CORS });
 ```
 
-} catch(err) {
-console.error(“BotFX:”, err.message);
-return { statusCode: 500, headers: headers, body: JSON.stringify({ error: err.message }) };
+} catch (err) {
+return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: CORS });
 }
 };
+
+export const config = { path: “/api/bitget” };
