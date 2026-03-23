@@ -8,7 +8,7 @@ return createHmac(“sha256”, secret)
 
 const STOCKS = [“NVDA”,“TSLA”,“AAPL”,“META”,“GOOGL”,“MSFT”,“AMZN”,“NFLX”,“AMD”,“INTC”,“COIN”,“MSTR”,“MA”,“LLY”,“PLTR”,“MCD”,“QQQ”,“GME”,“MRVL”,“RIOT”,“ORCL”,“CRCL”];
 const isStock = s => STOCKS.some(x => (s||””).toUpperCase().startsWith(x));
-const getPT = (s, o) => o ? o.toLowerCase() : isStock(s) ? “susdt-futures” : “usdt-futures”;
+const getPT = (s, o) => o ? o.toUpperCase() : isStock(s) ? “SUSDT-FUTURES” : “USDT-FUTURES”;
 const BASE = “https://api.bitget.com”;
 
 function makeHdrs(method, path, body, KEY, SEC, PASS) {
@@ -93,7 +93,7 @@ if (action === "ping") {
   const { symbol, side, quantity } = p;
   result = await bg("POST", "/api/v2/mix/order/place-order", { symbol, productType: getPT(symbol, p.productType), marginCoin: "USDT", side: side === "LONG" ? "sell" : "buy", tradeSide: "close", orderType: "market", size: String(Math.abs(parseFloat(quantity))) });
 } else if (action === "cancelAll") {
-  await Promise.all([bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "usdt-futures", marginCoin: "USDT" }), bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "susdt-futures", marginCoin: "USDT" }).catch(() => {})]);
+  await Promise.all([bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "USDT-FUTURES", marginCoin: "USDT" }), bg("POST", "/api/v2/mix/order/cancel-all-orders", { productType: "SUSDT-FUTURES", marginCoin: "USDT" }).catch(() => {})]);
   result = { ok: true };
 } else {
   return new Response(JSON.stringify({ error: "Unknown: " + action }), { status: 400, headers: CORS });
