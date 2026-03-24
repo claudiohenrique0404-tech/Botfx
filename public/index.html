@@ -397,32 +397,48 @@ async function syncBalance() {
 
 async function fetchPrices() {
   if (S.isLive && S.apiUrl) {
-    // Fetch prices from Bitget — split by productType
-    const enabled = ASSETS.filter(a => S.enabledAssets.includes(a.sym));
-    const cryptoSyms = enabled.filter(a => a.pt === 'USDT-FUTURES').map(a => a.sym);
-    const stockSyms  = enabled.filter(a => a.pt === 'SUSDT-FUTURES').map(a => a.sym);
-    const fetches = [];
-    if (cryptoSyms.length) fetches.push(api({action:'prices', symbols:cryptoSyms, productType:'USDT-FUTURES'}));
-    // Small delay between batches to avoid rate limits
-    if (cryptoSyms.length && stockSyms.length) await new Promise(r => setTimeout(r, 100));
-    if (stockSyms.length)  fetches.push(api({action:'prices', symbols:stockSyms,  productType:'SUSDT-FUTURES'}));
-    const results = await Promise.all(fetches);
-    const allItems = results.flat().filter(Boolean);
-    let updated = 0;
-    allItems.forEach(item => {
-      if (!item?.symbol || !item?.price) return;
-      const asset = ASSETS.find(a => a.sym === item.symbol);
-      if (!asset) return;
-      const rp = parseFloat(item.price);
-      if (!rp || rp <= 0) return;
-      const c = S.candles[asset.sym];
-      if (!c || c.length === 0) return;
-      const last = {...c.at(-1)};
-      S.candles[asset.sym] = [...c.slice(-119), {...last, c:rp, h:Math.max(last.h||rp, rp), l:Math.min(last.l||rp, rp)}];
-      updated++;
-    });
-    if(updated===0&&allItems.length===0){
-      addLog('⚠️ Nenhum preço recebido da Bitget — verifica a API key','info');
+    // Fetch ALL prices in 2 calls (one per productType) — much faster than per-symbol
+    try {
+      const [cryptoData, stockData] = await Promise.all([
+        api({action:'allPrices', productType:'USDT-FUTURES'}),
+        api({action:'allPrices', productType:'SUSDT-FUTURES'})
+      ]);
+      const allItems = [...(cryptoData||[]), ...(stockData||[])];
+      let updated = 0;
+      allItems.forEach(item => {
+        if (!item?.symbol || !item?.price) return;
+        const asset = ASSETS.find(a => a.sym === item.symbol);
+        if (!asset) return;
+        const rp = parseFloat(item.price);
+        if (!rp || rp <= 0) return;
+        const c = S.candles[asset.sym];
+        if (!c || c.length === 0) return;
+        const last = {...c.at(-1)};
+        // Update candle with new price
+        const newCandle = {...last, c:rp, h:Math.max(last.h||rp, rp), l:Math.min(last.l||rp, rp)};
+        S.candles[asset.sym] = [...c.slice(-119), newCandle];
+        updated++;
+      });
+      if(updated===0) addLog('⚠️ Nenhum preço recebido da Bitget','info');
+    } catch(e) {
+      // Fallback to per-symbol fetch
+      const enabled = ASSETS.filter(a => S.enabledAssets.includes(a.sym));
+      const cryptoSyms = enabled.filter(a => a.pt==='USDT-FUTURES').map(a=>a.sym);
+      const stockSyms = enabled.filter(a => a.pt==='SUSDT-FUTURES').map(a=>a.sym);
+      const results = await Promise.all([
+        cryptoSyms.length ? api({action:'prices', symbols:cryptoSyms, productType:'USDT-FUTURES'}) : [],
+        stockSyms.length ? api({action:'prices', symbols:stockSyms, productType:'SUSDT-FUTURES'}) : []
+      ]);
+      results.flat().filter(Boolean).forEach(item => {
+        const asset = ASSETS.find(a => a.sym === item.symbol);
+        if (!asset) return;
+        const rp = parseFloat(item.price);
+        if (!rp || rp <= 0) return;
+        const c = S.candles[asset.sym];
+        if (!c || c.length === 0) return;
+        const last = {...c.at(-1)};
+        S.candles[asset.sym] = [...c.slice(-119), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
+      });
     }
   } else {
     // Simulation: use Binance for crypto prices
@@ -439,7 +455,7 @@ async function fetchPrices() {
         const c = S.candles[asset.sym];
         if (!c || c.length === 0) return;
         const last = {...c.at(-1)};
-        S.candles[asset.sym] = [...c.slice(-119), {...last, c:rp, h:Math.max(last.h||rp, rp), l:Math.min(last.l||rp, rp)}];
+        S.candles[asset.sym] = [...c.slice(-119), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
       });
     } catch {}
   }
@@ -468,7 +484,27 @@ async function closeLiveTrade(pos) {
   if(!pos.isReal)return;
   const asset=ASSETS.find(a=>a.sym===pos.sym);
   if(!asset)return;
-  await api({action:'closePosition', symbol:asset.sym, side:pos.dir, quantity:pos.binQty});
+  // Get actual quantity from Bitget positions if binQty missing
+  let qty = pos.binQty;
+  if(!qty || qty<=0) {
+    try {
+      const positions = await api({action:'positions'});
+      if(Array.isArray(positions)) {
+        const live = positions.find(p=>p.symbol===pos.sym);
+        if(live) qty = parseFloat(live.total)||parseFloat(live.size)||0;
+      }
+    } catch(e) { console.log('qty fetch err', e.message); }
+  }
+  if(!qty || qty<=0) {
+    addLog('⚠️ Não foi possível obter quantidade para fechar '+pos.sym,'info');
+    return;
+  }
+  const result = await api({action:'closePosition', symbol:asset.sym, side:pos.dir, quantity:qty});
+  if(result && result.error) {
+    addLog('❌ Erro ao fechar '+pos.sym+': '+result.error,'loss');
+  } else {
+    addLog('✅ Posição fechada na Bitget: '+pos.sym,'win');
+  }
 }
 
 // Price engine
@@ -1023,7 +1059,17 @@ function checkPos(){
       S.consecLosses=0; // reset on win
     }
     S.closed.unshift({sym:pos.sym,dir:pos.dir,lev:pos.lev,pnl,tag,isReal:pos.isReal,at:new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})});
-    if(pos.isReal)await closeLiveTrade(pos);
+    if(pos.isReal) {
+      // For $ profit/loss targets from CONFIG, close manually (Bitget doesn't know about these)
+      if(tag==='🎯 ALVO'||tag==='🛑 MAX PERDA'||tag==='🛡 GAP') {
+        await closeLiveTrade(pos);
+      }
+      // For TP2/SL from indicators, Bitget already has these orders - just sync
+      // But also try to close in case Bitget order failed
+      else {
+        await closeLiveTrade(pos).catch(()=>{});
+      }
+    }
     S.positions=S.positions.filter(p=>p.id!==pos.id);
     const won=pnl>0,icon=tag==='TP2'?'✅':'🛑';
     addLog(`${icon} ${tag} ${pos.sym}${pos.isReal?' REAL':''} ${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(2)}`,won?'win':'loss');
@@ -1452,7 +1498,13 @@ function closeAll(){
 
 // Loops
 setInterval(()=>{ASSETS.forEach(a=>{const c=S.candles[a.sym];S.candles[a.sym]=[...c.slice(-119),tickC(c.at(-1),a.vol)];});const ap=document.querySelector('.pg.on')?.id;if(ap==='pg-dash')renderDash();if(ap==='pg-chart')renderChart();checkPos();updateHdr();},1500);
-setInterval(fetchPrices,8000);fetchPrices();
+fetchPrices();
+setInterval(async()=>{
+  if(S.isLive) await fetchPrices();
+}, 1000);
+setInterval(async()=>{
+  if(!S.isLive) await fetchPrices();
+}, 8000);
 // ═══════════════════════════════════════════
 // TWO-LAYER INTELLIGENT ENGINE
 // Layer 1: Fast watcher every 2s (local, no API)
@@ -1744,7 +1796,7 @@ async function runScan(force=false){
 }
 
 setInterval(fetchSentiment,300000);
-setInterval(()=>{ if(S.isLive)syncPositions(); },30000);
+setInterval(()=>{ if(S.isLive)syncPositions(); },10000);
 setInterval(updateMarketHours,60000);
 setInterval(fetchNews,600000);
 setInterval(fetchSocialSentiment,600000); // refresh social every 10min
