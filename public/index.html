@@ -263,8 +263,8 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
       <div class="srow"><div><div class="slab">Cooldown por Ativo</div><div class="ssub">Segundos após cada trade (padrão 30)</div></div><input class="sinput" type="number" id="s-int" value="20" min="5" max="120"></div>
       <div class="srow"><div><div class="slab">Máx. Posições</div><div class="ssub">Abertas em simultâneo</div></div><input class="sinput" type="number" id="s-max" value="3" min="1" max="10"></div>
       <div class="srow"><div><div class="slab">Take Profit (R)</div><div class="ssub">Ratio risco/reward</div></div><input class="sinput" type="number" id="s-tp" value="4" min="1" max="10" step="0.5"></div>
-      <div class="srow"><div><div class="slab">Fechar ao Lucro ($)</div><div class="ssub">Fecha posição ao atingir este lucro (0=desativado)</div></div><input class="sinput" type="number" id="s-maxprofit" value="0" min="0" step="5"></div>
-      <div class="srow"><div><div class="slab">Fechar ao Prejuízo ($)</div><div class="ssub">Fecha posição ao atingir esta perda (0=desativado)</div></div><input class="sinput" type="number" id="s-maxloss" value="0" min="0" step="5"></div>
+      <!-- Fechar ao Lucro removido - usar Take Profit (R) -->
+      <!-- Fechar ao Prejuizo removido - usar Stop Loss automático -->
       <div class="srow"><div><div class="slab">🎯 Meta Diária ($)</div><div class="ssub">Para o bot ao atingir este lucro no dia (0=desativado)</div></div><input class="sinput" type="number" id="s-dailygoal" value="30" min="0" step="5"></div>
       <div class="srow"><div><div class="slab">🛑 Stop Diário ($)</div><div class="ssub">Para o bot ao perder este valor no dia (0=desativado)</div></div><input class="sinput" type="number" id="s-dailystop" value="20" min="0" step="5"></div>
     </div>
@@ -384,13 +384,55 @@ async function api(body) {
 
 async function syncBalance() {
   if (!S.isLive) return;
+  // Fix startCapital per day - reset at midnight
+  const today = new Date().toDateString();
+  if (!S.dailyCapitalDate || S.dailyCapitalDate !== today) {
+    S.dailyCapitalDate = today;
+    // Will be set after first balance sync
+    S.needsStartCapital = true;
+  }
   const data = await api({action:'account'});
   if (data?.data) {
     const acc = Array.isArray(data.data) ? data.data[0] : data.data;
-    const bal = parseFloat(acc?.available || acc?.accountEquity || 0);
+    // Use usdtEquity for total balance including unrealized PnL
+    const bal = parseFloat(acc?.usdtEquity || acc?.accountEquity || acc?.available || 0);
     if (bal > 0) {
-      S.capital = bal; updateHdr();
-      addLog(`✅ Bitget sync: $${bal.toFixed(2)}`,'sys');
+      const prev = S.capital;
+      S.capital = bal;
+      // Set startCapital once per day
+      if (S.needsStartCapital) {
+        S.startCapital = bal;
+        S.needsStartCapital = false;
+        addLog('📅 Capital inicial do dia: $'+bal.toFixed(2),'sys');
+      }
+      // Update real PnL based on actual Bitget balance
+      const realPnl = bal - S.startCapital;
+      S.stats.totalPnl = realPnl;
+      S.equityCurve.push(bal);
+      if(S.equityCurve.length>80) S.equityCurve=S.equityCurve.slice(-80);
+      updateHdr();
+      if(Math.abs(bal-prev)>0.01) addLog(`✅ Bitget sync: $${bal.toFixed(2)} (P&L: ${realPnl>=0?'+':''}$${realPnl.toFixed(2)})`,'sys');
+      // Check daily goal after balance update
+      const dailyGoal = parseFloat(document.getElementById('s-dailygoal')?.value)||0;
+      const dailyStop = parseFloat(document.getElementById('s-dailystop')?.value)||0;
+      if(dailyGoal>0 && realPnl>=dailyGoal && S.botActive) {
+        S.botActive=false;
+        document.getElementById('tog-bot')?.classList.remove('on');
+        ['bdot','mdot'].forEach(id=>{const el=document.getElementById(id);if(el)el.className='dot dr';});
+        document.getElementById('bstatus').textContent='🎯 META DIÁRIA $'+dailyGoal+' ATINGIDA — Bot pausado';
+        addLog('🎯 Meta diária $'+dailyGoal+' atingida! Bot pausado.','win');
+        notif('🎯 Meta $'+dailyGoal+' atingida!','#00ff88');
+        updToggleColors();
+      }
+      if(dailyStop>0 && realPnl<=-dailyStop && S.botActive) {
+        S.botActive=false;
+        document.getElementById('tog-bot')?.classList.remove('on');
+        ['bdot','mdot'].forEach(id=>{const el=document.getElementById(id);if(el)el.className='dot dr';});
+        document.getElementById('bstatus').textContent='🛑 STOP DIÁRIO $'+dailyStop+' ATINGIDO — Bot pausado';
+        addLog('🛑 Stop diário $'+dailyStop+' atingido! Bot pausado.','loss');
+        notif('🛑 Stop diário $'+dailyStop+'!','#ff2255');
+        updToggleColors();
+      }
     }
   }
 }
@@ -1446,10 +1488,70 @@ function toggleBot(){
   ['bdot','mdot'].forEach(id=>{
     document.getElementById(id).className=`dot ${S.botActive?'dg':'dr'}${S.botActive?' pulse':''}`;
   });
-  document.getElementById('bstatus').textContent=S.botActive?'🤖 BOT ATIVO — A analisar mercados...':'⏹ BOT DESLIGADO — Toca em CONFIG para ligar';
-  notif(S.botActive?'▶ Bot ligado':'⏹ Bot desligado',S.botActive?'#00ff88':'#ff2255');
   updToggleColors();
-  if(S.botActive) runScan();
+  if(S.botActive){
+    S.warmup=true;
+    S.pricesLoaded=false;
+    document.getElementById('bstatus').textContent='⏳ A carregar candles reais da Bitget...';
+    notif('▶ Bot ligado — a carregar dados reais...','#ffcc00');
+
+    const loadRealCandles = async () => {
+      const enabled = ASSETS.filter(a => S.enabledAssets.includes(a.sym));
+      let loaded = 0;
+      const total = enabled.length;
+
+      addLog('📊 A carregar histórico real da Bitget...','sys');
+
+      for(const asset of enabled) {
+        try {
+          const pt = asset.pt || (asset.cat==='stock'||asset.cat==='index' ? 'SUSDT-FUTURES' : 'USDT-FUTURES');
+          document.getElementById('bstatus').textContent='⏳ '+asset.short+' ('+loaded+'/'+total+') — 1min...';
+
+          // Load 500 x 1min candles (~8 hours)
+          const c1m = await api({action:'candles', symbol:asset.sym, productType:pt, granularity:'1m', limit:500});
+          await new Promise(r=>setTimeout(r,200));
+
+          // Load 200 x 5min candles (~16 hours)
+          const c5m = await api({action:'candles', symbol:asset.sym, productType:pt, granularity:'5m', limit:200});
+          await new Promise(r=>setTimeout(r,200));
+
+          // Load 100 x 1hour candles (~4 days)
+          const c1h = await api({action:'candles', symbol:asset.sym, productType:pt, granularity:'1H', limit:100});
+          await new Promise(r=>setTimeout(r,200));
+
+          if(Array.isArray(c1m) && c1m.length >= 50) {
+            S.candles[asset.sym] = c1m;
+            // Store multi-timeframe data
+            if(!S.candles5m) S.candles5m = {};
+            if(!S.candles1h) S.candles1h = {};
+            if(Array.isArray(c5m) && c5m.length > 0) S.candles5m[asset.sym] = c5m;
+            if(Array.isArray(c1h) && c1h.length > 0) S.candles1h[asset.sym] = c1h;
+            loaded++;
+            addLog('✅ '+asset.short+' — '+c1m.length+'×1m, '+(c5m?.length||0)+'×5m, '+(c1h?.length||0)+'×1h','sys');
+          } else {
+            addLog('⚠️ '+asset.short+' — dados insuficientes','info');
+          }
+        } catch(e) {
+          addLog('❌ Erro a carregar '+asset.short+': '+e.message,'info');
+        }
+      }
+
+      if(loaded >= Math.min(5, total)) {
+        S.warmup=false;
+        S.pricesLoaded=true;
+        document.getElementById('bstatus').textContent='🤖 BOT ATIVO — '+loaded+'/'+total+' ativos com dados reais';
+        addLog('🚀 Bot pronto — '+loaded+'/'+total+' ativos com histórico completo','sys');
+        notif('🚀 Bot pronto com dados reais!','#00ff88');
+      } else {
+        addLog('⚠️ Poucos ativos carregados ('+loaded+') — a tentar novamente...','info');
+        setTimeout(loadRealCandles, 5000);
+      }
+    };
+    setTimeout(loadRealCandles, 500);
+  } else {
+    document.getElementById('bstatus').textContent='⏹ BOT DESLIGADO — Toca em CONFIG para ligar';
+    notif('⏹ Bot desligado','#ff2255');
+  }
 }
 function updLev(){document.getElementById('lbadge').textContent=(document.getElementById('s-lev')?.value||5)+'x';}
 function updToggleColors(){
@@ -1576,7 +1678,7 @@ function multiTFScore(candles, asset){
 
 async function watcherTick(){
   if(!S.botActive)return;
-  if(S.warmup)return;
+  if(S.warmup||!S.pricesLoaded)return;
   // Portfolio total risk limit (max 10% capital at risk simultaneously)
   const totalRiskOpen=S.positions.reduce((s,p)=>s+p.riskEur,0);
   const maxPortfolioRisk=S.capital*0.10;
@@ -1797,6 +1899,7 @@ async function runScan(force=false){
 
 setInterval(fetchSentiment,300000);
 setInterval(()=>{ if(S.isLive)syncPositions(); },10000);
+setInterval(()=>{ if(S.isLive)syncBalance(); },3000);
 setInterval(updateMarketHours,60000);
 setInterval(fetchNews,600000);
 setInterval(fetchSocialSentiment,600000); // refresh social every 10min
