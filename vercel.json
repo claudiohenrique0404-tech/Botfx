@@ -1,13 +1,11 @@
 {
   "version": 2,
-  "functions": {
-    "api/bitget.mjs": {
-      "memory": 512,
-      "maxDuration": 30
-    }
-  },
+  "builds": [
+    { "src": "api/bitget.js", "use": "@vercel/node" },
+    { "src": "public/index.html", "use": "@vercel/static" }
+  ],
   "routes": [
-    { "src": "/api/bitget", "dest": "/api/bitget.mjs" },
+    { "src": "/api/bitget", "dest": "/api/bitget.js" },
     { "src": "/(.*)", "dest": "/public/index.html" }
   ]
 }
