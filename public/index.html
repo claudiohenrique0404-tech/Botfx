@@ -1047,6 +1047,10 @@ function startLive(){
   notif('🔴 Bitget Real conectado!','#ff2255');
   // Delay balance sync by 3s to avoid rate limits on connect
   setTimeout(()=>syncBalance(), 3000);
+  setTimeout(()=>syncPositions(), 5000);
+  // Warmup delay - don't allow trades for 30s after connecting
+  S.warmup = true;
+  setTimeout(()=>{ S.warmup = false; addLog('✅ Bot pronto para operar','sys'); }, 30000);
 }
 function startSim(){
   const cap=parseFloat(document.getElementById('inp-cap').value)||100;
@@ -1520,6 +1524,7 @@ function multiTFScore(candles, asset){
 
 async function watcherTick(){
   if(!S.botActive)return;
+  if(S.warmup)return;
   // Portfolio total risk limit (max 10% capital at risk simultaneously)
   const totalRiskOpen=S.positions.reduce((s,p)=>s+p.riskEur,0);
   const maxPortfolioRisk=S.capital*0.10;
@@ -1739,6 +1744,7 @@ async function runScan(force=false){
 }
 
 setInterval(fetchSentiment,300000);
+setInterval(()=>{ if(S.isLive)syncPositions(); },30000);
 setInterval(updateMarketHours,60000);
 setInterval(fetchNews,600000);
 setInterval(fetchSocialSentiment,600000); // refresh social every 10min
