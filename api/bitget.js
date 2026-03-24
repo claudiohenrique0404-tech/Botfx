@@ -51,33 +51,18 @@ module.exports = async (req, res) => {
     } else if (action === 'account') {
       result = await bg('GET', '/api/v2/mix/account/accounts?productType=USDT-FUTURES');
     } else if (action === 'candles') {
-      // Fetch real OHLCV candles from Bitget
       const sym = p.symbol || 'BTCUSDT';
-      const pt = getPT(sym, p.productType);
-      const granularity = p.granularity || '1m'; // 1m, 5m, 15m, 1H
-      const limit = p.limit || 100;
-      const r = await fetch(`${BASE}/api/v2/mix/market/candles?symbol=${sym}&productType=${pt}&granularity=${granularity}&limit=${limit}`);
-      const d = await r.json();
-      if (!d || d.code !== '00000') { result = []; }
-      else {
-        // Bitget candles: [timestamp, open, high, low, close, volume, ...]
-        result = (d.data || []).map(c => ({
-          o: parseFloat(c[1]),
-          h: parseFloat(c[2]),
-          l: parseFloat(c[3]),
-          c: parseFloat(c[4]),
-          v: parseFloat(c[5])
-        })).reverse(); // oldest first
-      }
-    } else if (action === 'candles') {
-      const sym = p.symbol || 'BTCUSDT';
-      const pt = getPT(sym, p.productType);
+      // Bitget candles API requires lowercase productType
+      const pt = getPT(sym, p.productType).toLowerCase();
       const granularity = p.granularity || '1m';
       const limit = Math.min(p.limit || 500, 1000);
-      const r = await fetch(`${BASE}/api/v2/mix/market/candles?symbol=${sym}&productType=${pt}&granularity=${granularity}&limit=${limit}`);
+      const url = `${BASE}/api/v2/mix/market/candles?symbol=${sym}&productType=${pt}&granularity=${granularity}&limit=${limit}`;
+      const r = await fetch(url);
       const d = await r.json();
-      if (!d || d.code !== '00000') { result = []; }
-      else {
+      if (!d || d.code !== '00000') {
+        console.log('candles err:', sym, d?.code, d?.msg);
+        result = [];
+      } else {
         result = (d.data || []).map(c => ({
           o: parseFloat(c[1]), h: parseFloat(c[2]),
           l: parseFloat(c[3]), c: parseFloat(c[4]),
