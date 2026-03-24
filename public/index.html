@@ -738,12 +738,18 @@ function updateMarketHours(){
   const cryptoGood=!(utcH>=2&&utcH<6);
   // NYSE peak hours (best liquidity for stocks): 14:30-21:00 UTC
   const nysePeak=stockOpen&&utcH>=14&&utcH<21;
+  // NYSE hours: 14:30-21:00 UTC (09:30-16:00 ET)
+  const utcNow = now.getUTCHours()*60 + now.getUTCMinutes();
+  const usOpen = stockOpen && utcNow >= 14*60+30 && utcNow < 21*60;
+  const euOpen = stockOpen && utcNow >= 8*60 && utcNow < 16*60+30;
   MARKET_HOURS={
     stockOpen,
     nysePeak,
+    usOpen,
+    euOpen,
     cryptoGood,
     isWeekday:stockOpen,
-    session:nysePeak?'NYSE_PEAK':stockOpen?'STOCK_OPEN':'CLOSED',
+    session:usOpen?'NYSE_OPEN':nysePeak?'NYSE_PEAK':stockOpen?'STOCK_OPEN':'CLOSED',
     et4D, et4H
   };
 }
@@ -810,7 +816,7 @@ function computeSig(c,asset){
   const isIndex=asset?.cat==='index';
 
   // Market hours filter
-  if((isStock||isIndex)&&(!MARKET_HOURS.isWeekday||(!MARKET_HOURS.usOpen&&!MARKET_HOURS.euOpen)))
+  if((isStock||isIndex)&&!MARKET_HOURS.stockOpen)
     return{action:'WAIT',conf:0,score:0,r,e9,e21,e50,bv,price,entry:price,sl:0,tp1:0,tp2:0,atrV,mom,mc,volStr,mlWeight:1,sigType:'hours'};
   if(isCrypto&&!MARKET_HOURS.cryptoGood)
     return{action:'WAIT',conf:0,score:0,r,e9,e21,e50,bv,price,entry:price,sl:0,tp1:0,tp2:0,atrV,mom,mc,volStr,mlWeight:1,sigType:'hours'};
