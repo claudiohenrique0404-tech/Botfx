@@ -1153,14 +1153,16 @@ function startLive(){
         document.getElementById('bstatus').textContent='⏳ '+asset.short+' ('+loaded+'/'+total+')...';
 
         // 500x 1min candles (~8h)
+        addLog('⏳ A carregar '+asset.short+'...','sys');
         const c1m=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'1m',limit:500});
-        await new Promise(r=>setTimeout(r,150));
+        addLog('1m: '+(Array.isArray(c1m)?c1m.length+' candles':JSON.stringify(c1m)),'sys');
+        await new Promise(r=>setTimeout(r,200));
         // 200x 5min candles (~16h)
         const c5m=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'5m',limit:200});
-        await new Promise(r=>setTimeout(r,150));
+        await new Promise(r=>setTimeout(r,200));
         // 100x 1h candles (~4 dias)
         const c1h=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'1H',limit:100});
-        await new Promise(r=>setTimeout(r,150));
+        await new Promise(r=>setTimeout(r,200));
 
         if(Array.isArray(c1m)&&c1m.length>=50){
           S.candles[asset.sym]=c1m;
