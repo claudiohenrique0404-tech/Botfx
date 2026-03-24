@@ -367,7 +367,11 @@ const CATEGORIES = [
 // Default: only crypto enabled
 S.enabledAssets = ASSETS.filter(a=>a.cat==='crypto').map(a=>a.sym);
 S.enabledCats = ['crypto'];
-ASSETS.forEach(a=>{S.candles[a.sym]=seedC(a.base,120,a.vol);});
+ASSETS.forEach(a=>{
+  // In LIVE mode, start with empty candles - will be filled with real data
+  // In SIM mode, seed with simulated data
+  S.candles[a.sym] = S.isLive ? [] : seedC(a.base,120,a.vol);
+});
 
 // API call to Vercel proxy
 async function api(body) {
@@ -1128,6 +1132,8 @@ function startLive(){
   const cap=parseFloat(document.getElementById('inp-cap').value)||100;
   if(!url||!url.startsWith('http')){notif('⚠️ Insere o URL do Vercel','#ff2255');return;}
   S.apiUrl=url;S.isLive=true;S.capital=cap;S.startCapital=cap;S.equityCurve=[cap];
+  // Clear all simulated candles - LIVE mode uses only real data
+  ASSETS.forEach(a=>{ S.candles[a.sym]=[]; });
   localStorage.setItem('botfx_url',url);localStorage.setItem('botfx_cap',cap);
   document.getElementById('mbadge').className='mode-live';document.getElementById('mbadge').textContent='LIVE';
   document.getElementById('cfg-badge').className='mode-live';document.getElementById('cfg-badge').textContent='LIVE';
@@ -1616,7 +1622,7 @@ function closeAll(){
 }
 
 // Loops
-setInterval(()=>{ASSETS.forEach(a=>{const c=S.candles[a.sym];S.candles[a.sym]=[...c.slice(-119),tickC(c.at(-1),a.vol)];});const ap=document.querySelector('.pg.on')?.id;if(ap==='pg-dash')renderDash();if(ap==='pg-chart')renderChart();checkPos();updateHdr();},1500);
+setInterval(()=>{if(!S.isLive){ASSETS.forEach(a=>{const c=S.candles[a.sym];if(c&&c.length>0)S.candles[a.sym]=[...c.slice(-119),tickC(c.at(-1),a.vol)];});}const ap=document.querySelector('.pg.on')?.id;if(ap==='pg-dash')renderDash();if(ap==='pg-chart')renderChart();checkPos();updateHdr();},1500);
 fetchPrices();
 setInterval(async()=>{
   if(S.isLive) await fetchPrices();
@@ -1819,6 +1825,9 @@ async function layer2Confirm(asset,direction){
     }
   }
   const minConf=(parseInt(document.getElementById('s-conf')?.value)||55)/100;
+  // Debug: log candle count and current price
+  const dbgC=S.candles[asset.sym];
+  addLog('🔍 '+asset.short+' candles:'+dbgC?.length+' preço:$'+(dbgC?.at(-1)?.c||0).toFixed(2)+' score:'+sg.score+' conf:'+(sg.conf*100).toFixed(0)+'%','sys');
   if(sg.action==='WAIT'||sg.action!==direction||sg.conf<minConf){
     addLog('⚠️ '+asset.short+' — confirmação falhou ('+sg.action+' conf:'+(sg.conf*100).toFixed(0)+'%)','info');
     COOLDOWNS[asset.sym]=Date.now()+8000;
