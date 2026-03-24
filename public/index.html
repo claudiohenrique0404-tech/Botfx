@@ -1146,7 +1146,19 @@ function startLive(){
     await syncBalance();
     await syncPositions();
 
-    // Step 2: load real candles for all enabled assets
+    // Safety timeout - unlock bot after 90s max even if candles fail
+  setTimeout(()=>{
+    if(S.warmup){
+      S.warmup=false;
+      S.pricesLoaded=true;
+      if(togBot){togBot.disabled=false;togBot.style.opacity='1';togBot.title='';}
+      document.getElementById('bstatus').textContent='⚠️ Timeout — Bot disponível';
+      addLog('⚠️ Timeout ao carregar candles — bot desbloqueado','info');
+      notif('⚠️ Bot desbloqueado (timeout)','#ffcc00');
+    }
+  }, 90000);
+
+  // Step 2: load real candles for all enabled assets
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
     let loaded=0;
     const total=enabled.length;
@@ -1186,14 +1198,14 @@ function startLive(){
       }
     }
 
-    // Step 3: unlock bot toggle
-    S.warmup=false;
-    S.pricesLoaded=true;
-    if(togBot){togBot.disabled=false;togBot.style.opacity='1';togBot.title='';}
-    document.getElementById('bstatus').textContent='✅ Pronto! '+loaded+'/'+total+' ativos carregados — Liga o Bot Autónomo';
-    addLog('🚀 Dados reais carregados ('+loaded+'/'+total+') — Bot pronto para operar!','sys');
-    notif('🚀 Bot pronto! Liga o Bot Autónomo','#00ff88');
-    if(navigator.vibrate)navigator.vibrate([100,50,100]);
+    // Step 3: notify when candles are loaded
+    if(loaded>0){
+      addLog('🚀 '+loaded+'/'+total+' ativos com dados reais carregados!','sys');
+      notif('🚀 '+loaded+' ativos com dados reais!','#00ff88');
+      if(navigator.vibrate)navigator.vibrate([100,50,100]);
+    } else {
+      addLog('⚠️ Candles não carregaram — a usar dados locais','info');
+    }
   }, 2000);
 }
 function startSim(){
