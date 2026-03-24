@@ -51,23 +51,27 @@ module.exports = async (req, res) => {
     } else if (action === 'account') {
       result = await bg('GET', '/api/v2/mix/account/accounts?productType=USDT-FUTURES');
     } else if (action === 'candles') {
+      // PUBLIC endpoint - no auth needed
       const sym = p.symbol || 'BTCUSDT';
-      // Bitget candles API requires lowercase productType
-      const pt = getPT(sym, p.productType).toLowerCase();
+      const pt = (p.productType || 'USDT-FUTURES').toLowerCase();
       const granularity = p.granularity || '1m';
-      const limit = Math.min(p.limit || 500, 1000);
-      const url = `${BASE}/api/v2/mix/market/candles?symbol=${sym}&productType=${pt}&granularity=${granularity}&limit=${limit}`;
+      const limit = Math.min(parseInt(p.limit) || 500, 1000);
+      const url = BASE + '/api/v2/mix/market/candles?symbol=' + sym + '&productType=' + pt + '&granularity=' + granularity + '&limit=' + limit;
+      console.log('Fetching candles:', url);
       const r = await fetch(url);
       const d = await r.json();
+      console.log('Candles response code:', d?.code, 'data length:', d?.data?.length);
       if (!d || d.code !== '00000') {
         console.log('candles err:', sym, d?.code, d?.msg);
         result = [];
       } else {
-        result = (d.data || []).map(c => ({
-          o: parseFloat(c[1]), h: parseFloat(c[2]),
-          l: parseFloat(c[3]), c: parseFloat(c[4]),
-          v: parseFloat(c[5])
-        })).reverse();
+        result = (d.data || []).map(function(c) {
+          return {
+            o: parseFloat(c[1]), h: parseFloat(c[2]),
+            l: parseFloat(c[3]), c: parseFloat(c[4]),
+            v: parseFloat(c[5])
+          };
+        }).reverse();
       }
     } else if (action === 'allPrices') {
       // Fetch ALL tickers in one call — much more efficient
