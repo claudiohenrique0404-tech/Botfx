@@ -50,6 +50,18 @@ module.exports = async (req, res) => {
       result = { ok: true };
     } else if (action === 'account') {
       result = await bg('GET', '/api/v2/mix/account/accounts?productType=USDT-FUTURES');
+    } else if (action === 'allPrices') {
+      // Fetch ALL tickers in one call — much more efficient
+      const pt = (p.productType || 'USDT-FUTURES').toUpperCase();
+      const r = await fetch(`${BASE}/api/v2/mix/market/tickers?productType=${pt}`);
+      const d = await r.json();
+      if (!d || d.code !== '00000') { result = []; }
+      else {
+        result = (d.data || []).map(item => ({
+          symbol: item.symbol,
+          price: item.lastPr || item.last || item.close || '0'
+        })).filter(x => parseFloat(x.price) > 0);
+      }
     } else if (action === 'prices') {
       const syms = p.symbols || ['BTCUSDT'];
       const pt = getPT(syms[0], p.productType);
