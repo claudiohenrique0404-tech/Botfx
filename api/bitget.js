@@ -100,16 +100,28 @@ module.exports = async (req, res) => {
         }
       }
     } else if (action === 'allPrices') {
-      // Fetch ALL tickers in one call — much more efficient
-      const pt = (p.productType || 'USDT-FUTURES').toUpperCase();
-      const r = await fetch(`${BASE}/api/v2/mix/market/tickers?productType=${pt}`);
+      // Try v2 with lowercase productType first
+      const pt = (p.productType || 'USDT-FUTURES').toLowerCase();
+      const url = BASE + '/api/v2/mix/market/tickers?productType=' + pt;
+      console.log('allPrices url:', url);
+      const r = await fetch(url);
       const d = await r.json();
-      if (!d || d.code !== '00000') { result = []; }
-      else {
-        result = (d.data || []).map(item => ({
-          symbol: item.symbol,
-          price: item.lastPr || item.last || item.close || '0'
-        })).filter(x => parseFloat(x.price) > 0);
+      console.log('allPrices response:', d?.code, 'items:', d?.data?.length);
+      if (!d || d.code !== '00000') {
+        // Fallback: use v1 tickers
+        const ptv1 = pt === 'susdt-futures' ? 'sumcbl' : 'umcbl';
+        const r2 = await fetch(BASE + '/api/mix/v1/market/tickers?productType=' + ptv1);
+        const d2 = await r2.json();
+        console.log('allPrices v1 fallback:', d2?.code, 'items:', d2?.data?.length);
+        if (d2 && d2.code === '00000') {
+          result = (d2.data || []).map(function(item) {
+            return { symbol: item.symbol?.replace('_UMCBL','')?.replace('_SUMCBL',''), price: item.last || item.close || '0' };
+          }).filter(function(x) { return parseFloat(x.price) > 0; });
+        } else { result = []; }
+      } else {
+        result = (d.data || []).map(function(item) {
+          return { symbol: item.symbol, price: item.lastPr || item.last || item.close || '0' };
+        }).filter(function(x) { return parseFloat(x.price) > 0; });
       }
     } else if (action === 'prices') {
       const syms = p.symbols || ['BTCUSDT'];
