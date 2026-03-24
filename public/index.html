@@ -1136,10 +1136,9 @@ function startLive(){
   notif('🔴 Bitget Real conectado!','#ff2255');
 
   // Block bot toggle until candles are loaded
-  S.warmup=true;
-  S.pricesLoaded=false;
-  const togBot=document.getElementById('tog-bot');
-  if(togBot){togBot.disabled=true;togBot.style.opacity='0.4';togBot.title='A carregar dados...';}
+  S.warmup=false;
+  S.pricesLoaded=true;
+
 
   // Step 1: sync balance
   setTimeout(async()=>{
@@ -1151,7 +1150,7 @@ function startLive(){
     if(S.warmup){
       S.warmup=false;
       S.pricesLoaded=true;
-      if(togBot){togBot.disabled=false;togBot.style.opacity='1';togBot.title='';}
+
       document.getElementById('bstatus').textContent='⚠️ Timeout — Bot disponível';
       addLog('⚠️ Timeout ao carregar candles — bot desbloqueado','info');
       notif('⚠️ Bot desbloqueado (timeout)','#ffcc00');
@@ -1558,7 +1557,7 @@ function toggleBot(){
   });
   updToggleColors();
   if(S.botActive){
-    S.warmup=true;
+    S.warmup=false;
     S.pricesLoaded=false;
     document.getElementById('bstatus').textContent='⏳ A carregar candles reais da Bitget...';
     notif('▶ Bot ligado — a carregar dados reais...','#ffcc00');
@@ -1696,7 +1695,7 @@ function multiTFScore(candles, asset){
 
 async function watcherTick(){
   if(!S.botActive)return;
-  if(S.warmup||!S.pricesLoaded)return;
+
   // Portfolio total risk limit (max 10% capital at risk simultaneously)
   const totalRiskOpen=S.positions.reduce((s,p)=>s+p.riskEur,0);
   const maxPortfolioRisk=S.capital*0.10;
