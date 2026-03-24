@@ -1,0 +1,6 @@
+{
+  "routes": [
+    { "src": "/api/bitget", "dest": "/api/bitget.mjs" },
+    { "src": "/(.*)", "dest": "/public/index.html" }
+  ]
+}
