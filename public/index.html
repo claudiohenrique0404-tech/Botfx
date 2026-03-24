@@ -457,11 +457,16 @@ async function fetchPrices() {
         const rp = parseFloat(item.price);
         if (!rp || rp <= 0) return;
         const c = S.candles[asset.sym];
-        if (!c || c.length === 0) return;
+        if (!c || c.length === 0) {
+          // No candles yet - create first candle from real price
+          const seed = {o:rp, c:rp, h:rp*1.001, l:rp*0.999, v:100};
+          S.candles[asset.sym] = [seed];
+          updated++;
+          return;
+        }
         const last = {...c.at(-1)};
-        // Update candle with new price
         const newCandle = {...last, c:rp, h:Math.max(last.h||rp, rp), l:Math.min(last.l||rp, rp)};
-        S.candles[asset.sym] = [...c.slice(-119), newCandle];
+        S.candles[asset.sym] = [...c.slice(-499), newCandle];
         updated++;
       });
       if(updated===0) addLog('⚠️ Nenhum preço recebido da Bitget','info');
@@ -480,9 +485,12 @@ async function fetchPrices() {
         const rp = parseFloat(item.price);
         if (!rp || rp <= 0) return;
         const c = S.candles[asset.sym];
-        if (!c || c.length === 0) return;
+        if (!c || c.length === 0) {
+          S.candles[asset.sym] = [{o:rp,c:rp,h:rp*1.001,l:rp*0.999,v:100}];
+          return;
+        }
         const last = {...c.at(-1)};
-        S.candles[asset.sym] = [...c.slice(-119), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
+        S.candles[asset.sym] = [...c.slice(-499), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
       });
     }
   } else {
@@ -1175,17 +1183,28 @@ function startLive(){
         const pt=asset.pt||(asset.cat==='stock'||asset.cat==='index'?'SUSDT-FUTURES':'USDT-FUTURES');
         document.getElementById('bstatus').textContent='⏳ '+asset.short+' ('+loaded+'/'+total+')...';
 
-        // 500x 1min candles (~8h)
+        // Fetch candles DIRECTLY from Bitget (public endpoint - faster, no Vercel timeout)
         addLog('⏳ A carregar '+asset.short+'...','sys');
-        const c1m=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'1m',limit:500});
-        addLog('1m: '+(Array.isArray(c1m)?c1m.length+' candles':JSON.stringify(c1m)),'sys');
-        await new Promise(r=>setTimeout(r,200));
-        // 200x 5min candles (~16h)
-        const c5m=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'5m',limit:200});
-        await new Promise(r=>setTimeout(r,200));
-        // 100x 1h candles (~4 dias)
-        const c1h=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'1H',limit:100});
-        await new Promise(r=>setTimeout(r,200));
+        const ptLow=pt.toLowerCase();
+        const BASE_BG='https://api.bitget.com';
+
+        const fetchCandles=async(gran,limit)=>{
+          try{
+            const url=BASE_BG+'/api/v2/mix/market/candles?symbol='+asset.sym+'&productType='+ptLow+'&granularity='+gran+'&limit='+limit;
+            const r=await fetch(url);
+            const d=await r.json();
+            if(!d||d.code!=='00000')return[];
+            return (d.data||[]).map(c=>({o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4]),v:parseFloat(c[5])})).reverse();
+          }catch(e){return[];}
+        };
+
+        const c1m=await fetchCandles('1m',500);
+        addLog('✅ '+asset.short+' 1m: '+c1m.length+' candles','sys');
+        await new Promise(r=>setTimeout(r,100));
+        const c5m=await fetchCandles('5m',200);
+        await new Promise(r=>setTimeout(r,100));
+        const c1h=await fetchCandles('1H',100);
+        await new Promise(r=>setTimeout(r,100));
 
         if(Array.isArray(c1m)&&c1m.length>=50){
           S.candles[asset.sym]=c1m;
