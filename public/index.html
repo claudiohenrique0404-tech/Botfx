@@ -263,8 +263,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
       <div class="srow"><div><div class="slab">Cooldown por Ativo</div><div class="ssub">Segundos após cada trade (padrão 30)</div></div><input class="sinput" type="number" id="s-int" value="20" min="5" max="120"></div>
       <div class="srow"><div><div class="slab">Máx. Posições</div><div class="ssub">Abertas em simultâneo</div></div><input class="sinput" type="number" id="s-max" value="3" min="1" max="10"></div>
       <div class="srow"><div><div class="slab">Take Profit (R)</div><div class="ssub">Ratio risco/reward</div></div><input class="sinput" type="number" id="s-tp" value="4" min="1" max="10" step="0.5"></div>
-      <!-- Fechar ao Lucro removido - usar Take Profit (R) -->
-      <!-- Fechar ao Prejuizo removido - usar Stop Loss automático -->
+
       <div class="srow"><div><div class="slab">🎯 Meta Diária ($)</div><div class="ssub">Para o bot ao atingir este lucro no dia (0=desativado)</div></div><input class="sinput" type="number" id="s-dailygoal" value="30" min="0" step="5"></div>
       <div class="srow"><div><div class="slab">🛑 Stop Diário ($)</div><div class="ssub">Para o bot ao perder este valor no dia (0=desativado)</div></div><input class="sinput" type="number" id="s-dailystop" value="20" min="0" step="5"></div>
     </div>
@@ -1052,14 +1051,10 @@ function checkPos(){
     const hitSL=long?price<=pos.sl:price>=pos.sl;
     const hitTP2=long?price>=pos.tp2:price<=pos.tp2;
     const curPnl=(long?price-pos.entry:pos.entry-price)*pos.size;
-    const maxProfit=parseFloat(document.getElementById('s-maxprofit')?.value)||0;
-    const maxLoss=parseFloat(document.getElementById('s-maxloss')?.value)||0;
-    const hitProfit=maxProfit>0&&curPnl>=maxProfit;
-    const hitLossMax=maxLoss>0&&curPnl<=-maxLoss;
     // Gap protection: absolute max loss = 2x riskEur regardless of SL
     const gapProtection=curPnl<=-pos.riskEur*2;
-    const tag=hitProfit?'🎯 ALVO':gapProtection?'🛡 GAP':hitLossMax?'🛑 MAX PERDA':hitTP2?'TP2':'SL';
-    if(hitTP2||hitSL||hitProfit||hitLossMax||gapProtection)toClose.push({pos,price,tag});
+    const tag=gapProtection?'🛡 GAP':hitTP2?'TP2':'SL';
+    if(hitTP2||hitSL||gapProtection)toClose.push({pos,price,tag});
   });
   toClose.forEach(async({pos,price,tag})=>{
     const long=pos.dir==='LONG',mult=pos.tp1Hit?0.5:1;
@@ -1927,7 +1922,7 @@ setInterval(fetchSentiment, 300000); // refresh sentiment every 5min
 setInterval(updateMarketHours, 60000); // refresh market hours every 1min
 // Settings persistence
 function saveSettings(){
-  const ids=['s-lev','s-risk','s-conf','s-int','s-max','s-tp','s-maxprofit','s-maxloss','s-dailygoal','s-dailystop'];
+  const ids=['s-lev','s-risk','s-conf','s-int','s-max','s-tp','s-dailygoal','s-dailystop'];
   const cfg={};
   ids.forEach(id=>{const el=document.getElementById(id);if(el)cfg[id]=el.value;});
   localStorage.setItem('botfx_settings',JSON.stringify(cfg));
