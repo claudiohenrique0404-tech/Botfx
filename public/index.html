@@ -1128,12 +1128,65 @@ function startLive(){
   document.getElementById('setup').style.display='none';
   addLog('🔴 BITGET LIVE ATIVO — '+url,'sys');
   notif('🔴 Bitget Real conectado!','#ff2255');
-  // Delay balance sync by 3s to avoid rate limits on connect
-  setTimeout(()=>syncBalance(), 3000);
-  setTimeout(()=>syncPositions(), 5000);
-  // Warmup delay - don't allow trades for 30s after connecting
-  S.warmup = true;
-  setTimeout(()=>{ S.warmup = false; addLog('✅ Bot pronto para operar','sys'); }, 30000);
+
+  // Block bot toggle until candles are loaded
+  S.warmup=true;
+  S.pricesLoaded=false;
+  const togBot=document.getElementById('tog-bot');
+  if(togBot){togBot.disabled=true;togBot.style.opacity='0.4';togBot.title='A carregar dados...';}
+
+  // Step 1: sync balance
+  setTimeout(async()=>{
+    await syncBalance();
+    await syncPositions();
+
+    // Step 2: load real candles for all enabled assets
+    const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
+    let loaded=0;
+    const total=enabled.length;
+    addLog('📊 A carregar histórico real — '+total+' ativos...','sys');
+    document.getElementById('bstatus').textContent='⏳ A carregar dados reais (0/'+total+')...';
+
+    for(const asset of enabled){
+      try{
+        const pt=asset.pt||(asset.cat==='stock'||asset.cat==='index'?'SUSDT-FUTURES':'USDT-FUTURES');
+        document.getElementById('bstatus').textContent='⏳ '+asset.short+' ('+loaded+'/'+total+')...';
+
+        // 500x 1min candles (~8h)
+        const c1m=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'1m',limit:500});
+        await new Promise(r=>setTimeout(r,150));
+        // 200x 5min candles (~16h)
+        const c5m=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'5m',limit:200});
+        await new Promise(r=>setTimeout(r,150));
+        // 100x 1h candles (~4 dias)
+        const c1h=await api({action:'candles',symbol:asset.sym,productType:pt,granularity:'1H',limit:100});
+        await new Promise(r=>setTimeout(r,150));
+
+        if(Array.isArray(c1m)&&c1m.length>=50){
+          S.candles[asset.sym]=c1m;
+          if(!S.candles5m)S.candles5m={};
+          if(!S.candles1h)S.candles1h={};
+          if(Array.isArray(c5m)&&c5m.length>0)S.candles5m[asset.sym]=c5m;
+          if(Array.isArray(c1h)&&c1h.length>0)S.candles1h[asset.sym]=c1h;
+          loaded++;
+          addLog('✅ '+asset.short+' — '+c1m.length+'×1m, '+(c5m?.length||0)+'×5m, '+(c1h?.length||0)+'×1h','sys');
+        } else {
+          addLog('⚠️ '+asset.short+' — sem dados suficientes','info');
+        }
+      }catch(e){
+        addLog('❌ '+asset.short+': '+e.message,'info');
+      }
+    }
+
+    // Step 3: unlock bot toggle
+    S.warmup=false;
+    S.pricesLoaded=true;
+    if(togBot){togBot.disabled=false;togBot.style.opacity='1';togBot.title='';}
+    document.getElementById('bstatus').textContent='✅ Pronto! '+loaded+'/'+total+' ativos carregados — Liga o Bot Autónomo';
+    addLog('🚀 Dados reais carregados ('+loaded+'/'+total+') — Bot pronto para operar!','sys');
+    notif('🚀 Bot pronto! Liga o Bot Autónomo','#00ff88');
+    if(navigator.vibrate)navigator.vibrate([100,50,100]);
+  }, 2000);
 }
 function startSim(){
   const cap=parseFloat(document.getElementById('inp-cap').value)||100;
@@ -1490,59 +1543,9 @@ function toggleBot(){
     document.getElementById('bstatus').textContent='⏳ A carregar candles reais da Bitget...';
     notif('▶ Bot ligado — a carregar dados reais...','#ffcc00');
 
-    const loadRealCandles = async () => {
-      const enabled = ASSETS.filter(a => S.enabledAssets.includes(a.sym));
-      let loaded = 0;
-      const total = enabled.length;
-
-      addLog('📊 A carregar histórico real da Bitget...','sys');
-
-      for(const asset of enabled) {
-        try {
-          const pt = asset.pt || (asset.cat==='stock'||asset.cat==='index' ? 'SUSDT-FUTURES' : 'USDT-FUTURES');
-          document.getElementById('bstatus').textContent='⏳ '+asset.short+' ('+loaded+'/'+total+') — 1min...';
-
-          // Load 500 x 1min candles (~8 hours)
-          const c1m = await api({action:'candles', symbol:asset.sym, productType:pt, granularity:'1m', limit:500});
-          await new Promise(r=>setTimeout(r,200));
-
-          // Load 200 x 5min candles (~16 hours)
-          const c5m = await api({action:'candles', symbol:asset.sym, productType:pt, granularity:'5m', limit:200});
-          await new Promise(r=>setTimeout(r,200));
-
-          // Load 100 x 1hour candles (~4 days)
-          const c1h = await api({action:'candles', symbol:asset.sym, productType:pt, granularity:'1H', limit:100});
-          await new Promise(r=>setTimeout(r,200));
-
-          if(Array.isArray(c1m) && c1m.length >= 50) {
-            S.candles[asset.sym] = c1m;
-            // Store multi-timeframe data
-            if(!S.candles5m) S.candles5m = {};
-            if(!S.candles1h) S.candles1h = {};
-            if(Array.isArray(c5m) && c5m.length > 0) S.candles5m[asset.sym] = c5m;
-            if(Array.isArray(c1h) && c1h.length > 0) S.candles1h[asset.sym] = c1h;
-            loaded++;
-            addLog('✅ '+asset.short+' — '+c1m.length+'×1m, '+(c5m?.length||0)+'×5m, '+(c1h?.length||0)+'×1h','sys');
-          } else {
-            addLog('⚠️ '+asset.short+' — dados insuficientes','info');
-          }
-        } catch(e) {
-          addLog('❌ Erro a carregar '+asset.short+': '+e.message,'info');
-        }
-      }
-
-      if(loaded >= Math.min(5, total)) {
-        S.warmup=false;
-        S.pricesLoaded=true;
-        document.getElementById('bstatus').textContent='🤖 BOT ATIVO — '+loaded+'/'+total+' ativos com dados reais';
-        addLog('🚀 Bot pronto — '+loaded+'/'+total+' ativos com histórico completo','sys');
-        notif('🚀 Bot pronto com dados reais!','#00ff88');
-      } else {
-        addLog('⚠️ Poucos ativos carregados ('+loaded+') — a tentar novamente...','info');
-        setTimeout(loadRealCandles, 5000);
-      }
-    };
-    setTimeout(loadRealCandles, 500);
+    // Candles already loaded in startLive — just activate
+    document.getElementById('bstatus').textContent='🤖 BOT ATIVO — A analisar mercados...';
+    notif('▶ Bot ligado','#00ff88');
   } else {
     document.getElementById('bstatus').textContent='⏹ BOT DESLIGADO — Toca em CONFIG para ligar';
     notif('⏹ Bot desligado','#ff2255');
