@@ -74,6 +74,7 @@ module.exports = async (req, res) => {
         // v1 returns array directly: [timestamp, open, high, low, close, volume]
         result = d.map(function(c) {
           return {
+            ts: parseFloat(c[0]),
             o: parseFloat(c[1]), h: parseFloat(c[2]),
             l: parseFloat(c[3]), c: parseFloat(c[4]),
             v: parseFloat(c[5])
