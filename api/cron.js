@@ -194,13 +194,15 @@ function computeSig(c, asset, btcTrend=0, fearGreed=50) {
 }
 
 // ═══ FETCH CANDLES ═══
-async function fetchCandles(sym, granularity='60', limit=200) {
-  const v1sym = sym + '_UMCBL';
-  const url = BASE + '/api/mix/v1/market/candles?symbol=' + v1sym + '&granularity=' + granularity + '&limit=' + limit;
+async function fetchCandles(sym, granularity='1m', limit=200) {
+  // v1 was decommissioned - use v2
+  const isStk = SYMBOLS.some(function(x) { return x.sym === sym && x.cat !== 'crypto'; });
+  const pt = isStk ? 'susdt-futures' : 'usdt-futures';
+  const url = BASE + '/api/v2/mix/market/candles?symbol=' + sym + '&productType=' + pt + '&granularity=' + granularity + '&limit=' + limit;
   const r = await fetch(url);
   const d = await r.json();
-  if (!Array.isArray(d) || d.length === 0) return null;
-  return d.map(c => ({
+  if (!d || d.code !== '00000' || !Array.isArray(d.data) || d.data.length === 0) return null;
+  return d.data.map(c => ({
     o: parseFloat(c[1]), h: parseFloat(c[2]),
     l: parseFloat(c[3]), c: parseFloat(c[4]),
     v: parseFloat(c[5])
@@ -266,7 +268,7 @@ module.exports = async (req, res) => {
     // Fear & Greed + BTC trend
     const [fearGreed, btcCandles] = await Promise.all([
       fetchFearGreed(),
-      fetchCandles('BTCUSDT', '60', 50)
+      fetchCandles('BTCUSDT', '1m', 50)
     ]);
 
     const btcTrend = btcCandles
@@ -288,7 +290,7 @@ module.exports = async (req, res) => {
         const unrealPnl = parseFloat(pos.unrealizedPL || 0);
 
         // Get current candles for signal check
-        const c1m = await fetchCandles(sym.replace('_UMCBL',''), '60', 100);
+        const c1m = await fetchCandles(sym, '1m', 100);
         if (!c1m || c1m.length < 30) continue;
 
         const currentPrice = c1m.at(-1).c;
@@ -352,8 +354,8 @@ module.exports = async (req, res) => {
       try {
         // Buscar candles 1m e 5m para multi-timeframe
         const [c1m, c5m] = await Promise.all([
-          fetchCandles(asset.sym, '60', 200),
-          fetchCandles(asset.sym, '300', 100)
+          fetchCandles(asset.sym, '1m', 200),
+          fetchCandles(asset.sym, '5m', 100)
         ]);
 
         if (!c1m || c1m.length < 60) {
