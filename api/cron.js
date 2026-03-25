@@ -255,24 +255,92 @@ module.exports = async (req, res) => {
     const acc = Array.isArray(account.data) ? account.data[0] : account.data;
     const capital = parseFloat(acc?.usdtEquity || acc?.available || 0);
     addLog('💰 Capital: $' + capital.toFixed(2));
-    if (capital < 5) return res.json({ log });
+    if (capital < 5) return res.json({ ok:false, reason:'capital insuficiente' });
 
     // Posições abertas
     const posData = await bg('GET', '/api/v2/mix/position/all-position?productType=usdt-futures&marginCoin=USDT', null, KEY, SEC, PASS);
     const openPositions = (posData.data || []).filter(p => parseFloat(p.total) > 0);
     addLog('📊 Posições: ' + openPositions.length + '/' + CONFIG.maxPositions);
-    if (openPositions.length >= CONFIG.maxPositions) return res.json({ log });
+    if (openPositions.length >= CONFIG.maxPositions) return res.json({ ok:true, reason:'max posicoes', positions: openPositions.length });
 
     // Fear & Greed + BTC trend
     const [fearGreed, btcCandles] = await Promise.all([
       fetchFearGreed(),
       fetchCandles('BTCUSDT', '60', 50)
     ]);
-    addLog('😱 Fear&Greed: ' + fearGreed);
+
     const btcTrend = btcCandles
       ? ((btcCandles.at(-1).c - btcCandles[0].c) / btcCandles[0].c) * 100
       : 0;
-    addLog('₿ BTC trend: ' + btcTrend.toFixed(2) + '%');
+
+
+    // ═══ GERIR POSIÇÕES ABERTAS ═══
+    let closed = 0;
+    const dailyGoal = parseFloat(process.env.DAILY_GOAL || '0');
+    const dailyStop = parseFloat(process.env.DAILY_STOP || '0');
+
+    for (const pos of openPositions) {
+      try {
+        const sym = pos.symbol;
+        const side = pos.holdSide; // 'long' or 'short'
+        const entryPrice = parseFloat(pos.openPriceAvg || 0);
+        const size = parseFloat(pos.total || 0);
+        const unrealPnl = parseFloat(pos.unrealizedPL || 0);
+
+        // Get current candles for signal check
+        const c1m = await fetchCandles(sym.replace('_UMCBL',''), '60', 100);
+        if (!c1m || c1m.length < 30) continue;
+
+        const currentPrice = c1m.at(-1).c;
+        const asset = SYMBOLS.find(a => a.sym === sym) || { sym, cat:'crypto', vol:0.02 };
+        const sig = computeSig(c1m, asset, btcTrend, fearGreed);
+
+        // Check signal reversal
+        const sigReversed = sig && (
+          (side === 'long' && sig.action === 'SHORT') ||
+          (side === 'short' && sig.action === 'LONG')
+        );
+
+        // Check daily goal/stop
+        const capital2 = parseFloat(acc?.usdtEquity || 0);
+        const startCapital = parseFloat(process.env.START_CAPITAL || capital2);
+        const dailyPnl = capital2 - startCapital;
+        const hitDailyGoal = dailyGoal > 0 && dailyPnl >= dailyGoal;
+        const hitDailyStop = dailyStop > 0 && dailyPnl <= -dailyStop;
+
+        // Check how long position is open (using openTime if available)
+        const pnlPct = entryPrice > 0 ? (unrealPnl / (entryPrice * size)) * 100 : 0;
+
+        let shouldClose = false;
+        let reason = '';
+
+        if (hitDailyGoal) { shouldClose = true; reason = 'META DIARIA $' + dailyGoal; }
+        else if (hitDailyStop) { shouldClose = true; reason = 'STOP DIARIO $' + dailyStop; }
+        else if (sigReversed && unrealPnl > 0) { shouldClose = true; reason = 'SINAL REVERTEU com lucro'; }
+        else if (sigReversed && sig.conf > 0.7) { shouldClose = true; reason = 'SINAL FORTE CONTRARIO'; }
+
+        if (shouldClose) {
+          addLog('🔴 A fechar ' + sym + ' — ' + reason);
+          try {
+            await bg('POST', '/api/v2/mix/order/close-positions', {
+              symbol: sym,
+              productType: 'USDT-FUTURES',
+              holdSide: side
+            }, KEY, SEC, PASS);
+            addLog('✅ ' + sym + ' fechado — PnL: $' + unrealPnl.toFixed(2));
+            closed++;
+          } catch(e) {
+            addLog('❌ Erro ao fechar ' + sym + ': ' + e.message);
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+
+      } catch(e) {
+        addLog('❌ Erro ao gerir ' + pos.symbol + ': ' + e.message);
+      }
+    }
+
+    if (closed > 0) addLog('✅ ' + closed + ' posições fechadas');
 
     const openSyms = openPositions.map(p => p.symbol);
     let opened = 0;
@@ -309,7 +377,7 @@ module.exports = async (req, res) => {
         }
 
         const conf = sig5m ? (sig1m.conf + sig5m.conf) / 2 : sig1m.conf;
-        addLog('🎯 ' + asset.sym + ' ' + sig1m.action + ' score:' + sig1m.score + ' conf:' + (conf*100).toFixed(0) + '% regime:' + sig1m.regime);
+
 
         // Quantidade
         const riskAmt = capital * CONFIG.riskPct * CONFIG.leverage;
@@ -326,7 +394,7 @@ module.exports = async (req, res) => {
             { symbol: asset.sym, productType: 'usdt-futures', marginCoin: 'USDT', leverage: String(CONFIG.leverage), holdSide: sig1m.action === 'LONG' ? 'long' : 'short' },
             KEY, SEC, PASS);
         } catch(e) {
-          addLog('❌ ' + asset.sym + ' leverage falhou — a cancelar: ' + e.message);
+  
           continue;
         }
 
@@ -356,7 +424,7 @@ module.exports = async (req, res) => {
               triggerPrice: sig1m.sl.toFixed(dp), triggerType: 'mark_price',
               executePrice: '0', size: qty
             }, KEY, SEC, PASS);
-            addLog('🛡 SL: $' + sig1m.sl.toFixed(dp));
+  
           } catch(e) { addLog('⚠️ SL falhou: ' + e.message); }
 
           // TP
@@ -368,7 +436,7 @@ module.exports = async (req, res) => {
               triggerPrice: sig1m.tp.toFixed(dp), triggerType: 'mark_price',
               executePrice: '0', size: qty
             }, KEY, SEC, PASS);
-            addLog('🎯 TP: $' + sig1m.tp.toFixed(dp));
+  
           } catch(e) { addLog('⚠️ TP falhou: ' + e.message); }
         }
 
@@ -382,12 +450,12 @@ module.exports = async (req, res) => {
     addLog('✅ Cron completo — ' + opened + ' trades abertos');
     lastLog = log;
     lastRun = new Date().toISOString();
-    return res.json({ log, opened, positions: openPositions.length + opened });
+    return res.json({ ok:true, capital:capital.toFixed(2), opened, closed, positions: openPositions.length + opened - closed });
 
   } catch(e) {
     addLog('❌ Erro fatal: ' + e.message);
     lastLog = log;
     lastRun = new Date().toISOString();
-    return res.status(500).json({ error: e.message, log });
+    return res.status(500).json({ ok:false, error: e.message });
   }
 };
