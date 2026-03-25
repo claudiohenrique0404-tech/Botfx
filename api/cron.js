@@ -289,7 +289,7 @@ module.exports = async (req, res) => {
         ]);
 
         if (!c1m || c1m.length < 60) {
-          addLog('⚠️ ' + asset.sym + ' sem candles');
+          // skip: no candles
           continue;
         }
 
@@ -299,7 +299,7 @@ module.exports = async (req, res) => {
 
         // Só entra se ambos os timeframes concordam (ou 1m muito forte)
         if (!sig1m) {
-          addLog('⏳ ' + asset.sym + ' sem sinal');
+          // skip: no signal
           continue;
         }
 
@@ -315,10 +315,7 @@ module.exports = async (req, res) => {
         const riskAmt = capital * CONFIG.riskPct * CONFIG.leverage;
         const dp = sig1m.entry < 1 ? 5 : sig1m.entry < 100 ? 3 : 1;
         const qty = (riskAmt / sig1m.entry).toFixed(3);
-        if (parseFloat(qty) * sig1m.entry < 5) {
-          addLog('⚠️ ' + asset.sym + ' valor mínimo não atingido');
-          continue;
-        }
+        if (parseFloat(qty) * sig1m.entry < 5) continue;
 
         // Definir margin mode e leverage — se falhar, não abre
         try {
