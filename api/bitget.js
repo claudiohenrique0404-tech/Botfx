@@ -92,16 +92,7 @@ module.exports = async (req, res) => {
       const d = await r.json();
       console.log('allPrices response:', d?.code, 'items:', d?.data?.length);
       if (!d || d.code !== '00000') {
-        // Fallback: use v1 tickers
-        const ptv1 = pt === 'susdt-futures' ? 'sumcbl' : 'umcbl';
-        const r2 = await fetch(BASE + '/api/mix/v1/market/tickers?productType=' + ptv1);
-        const d2 = await r2.json();
-        console.log('allPrices v1 fallback:', d2?.code, 'items:', d2?.data?.length);
-        if (d2 && d2.code === '00000') {
-          result = (d2.data || []).map(function(item) {
-            return { symbol: item.symbol?.replace('_UMCBL','')?.replace('_SUMCBL',''), price: item.last || item.close || '0' };
-          }).filter(function(x) { return parseFloat(x.price) > 0; });
-        } else { result = []; }
+        result = [];
       } else {
         result = (d.data || []).map(function(item) {
           return { symbol: item.symbol, price: item.lastPr || item.last || item.close || '0' };
