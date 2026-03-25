@@ -1164,7 +1164,6 @@ function startLive(){
     await syncPositions();
     addLog('📊 A carregar candles reais da Bitget...','sys');
     document.getElementById('bstatus').textContent='⏳ A carregar candles reais...';
-    const BASE_BG='https://api.bitget.com';
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
     let loaded=0;
     for(const asset of enabled){
