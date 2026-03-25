@@ -17,9 +17,9 @@ module.exports = async (req, res) => {
   // Quick test endpoint - GET /api/bitget?test=candles
   if (req.method === 'GET' && req.url && req.url.includes('test=candles')) {
     try {
-      const r = await fetch('https://api.bitget.com/api/mix/v1/market/candles?symbol=BTCUSDT_UMCBL&granularity=60&limit=5');
+      const r = await fetch('https://api.bitget.com/api/v2/mix/market/candles?symbol=BTCUSDT&productType=usdt-futures&granularity=1m&limit=3');
       const d = await r.json();
-      return res.json({ ok: true, type: typeof d, isArray: Array.isArray(d), length: Array.isArray(d) ? d.length : 0, sample: Array.isArray(d) ? d[0] : d });
+      return res.json({ ok: true, code: d.code, isArray: Array.isArray(d.data), length: d.data ? d.data.length : 0, sample: d.data ? d.data[0] : d });
     } catch(e) {
       return res.json({ ok: false, error: e.message });
     }
