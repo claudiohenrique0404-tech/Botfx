@@ -1160,6 +1160,7 @@ function startLive(){
 
   // Load candles and sync balance
   setTimeout(async()=>{
+    try{
     await syncBalance();
     await syncPositions();
     addLog('📊 A carregar candles reais da Bitget...','sys');
@@ -1193,6 +1194,7 @@ function startLive(){
       addLog('⚠️ Candles falharam — bot usa dados em tempo real','info');
     }
     document.getElementById('bstatus').textContent='⏹ BOT DESLIGADO — Toca em CONFIG para ligar';
+    }catch(err){addLog('❌ ERRO CRITICO: '+err.message,'info');}
   }, 1000);
 }
 function startSim(){
