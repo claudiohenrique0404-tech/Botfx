@@ -224,28 +224,19 @@ let lastRun = null;
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
-  // GET with view=1 - show last log
-  if (req.method === 'GET' && req.url && req.url.includes('view=1')) {
-    return res.json({ lastRun, log: lastLog, message: lastLog.length === 0 ? 'Ainda sem execucoes' : 'OK' });
-  }
-
-  // GET without auth - unauthorized
-  if (req.method === 'GET') {
-    return res.status(401).json({ error: 'Use ?view=1 para ver o log' });
-  }
-
   const authHeader = req.headers['authorization'] || '';
   const secret = process.env.CRON_SECRET || '';
-  // Debug - remove after fix
-  if (authHeader === 'debug') {
-    return res.json({ authHeader, secret, headers: Object.keys(req.headers) });
+
+  // View log without auth
+  if (req.url && req.url.includes('view=1')) {
+    return res.json({ lastRun, log: lastLog });
   }
+
+  // Authenticate all other requests (GET or POST)
   const valid = authHeader === 'Bearer ' + secret || 
-                authHeader === secret ||
-                authHeader === 'Bearer Botfx2026' ||
-                authHeader === 'Botfx2026';
+                authHeader === secret;
   if (!valid) {
-    return res.status(401).json({ error: 'Unauthorized', received: authHeader, expected: secret });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const KEY = process.env.BITGET_API_KEY;
