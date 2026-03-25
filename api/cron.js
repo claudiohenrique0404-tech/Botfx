@@ -236,12 +236,16 @@ module.exports = async (req, res) => {
 
   const authHeader = req.headers['authorization'] || '';
   const secret = process.env.CRON_SECRET || '';
+  // Debug - remove after fix
+  if (authHeader === 'debug') {
+    return res.json({ authHeader, secret, headers: Object.keys(req.headers) });
+  }
   const valid = authHeader === 'Bearer ' + secret || 
                 authHeader === secret ||
                 authHeader === 'Bearer Botfx2026' ||
                 authHeader === 'Botfx2026';
   if (!valid) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'Unauthorized', received: authHeader, expected: secret });
   }
 
   const KEY = process.env.BITGET_API_KEY;
