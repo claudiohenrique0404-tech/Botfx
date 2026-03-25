@@ -1188,23 +1188,26 @@ function startLive(){
         const ptLow=pt.toLowerCase();
         const BASE_BG='https://api.bitget.com';
 
-        const fetchCandles=async(gran,limit)=>{
+        // Use v1 API with seconds granularity - confirmed working
+        const fetchCandlesV1=async(gran,limit)=>{
           try{
-            const url=BASE_BG+'/api/v2/mix/market/candles?symbol='+asset.sym+'&productType='+ptLow+'&granularity='+gran+'&limit='+limit;
+            const isStk=asset.cat==='stock'||asset.cat==='index';
+            const v1sym=asset.sym+(isStk?'_SUSDT':'_UMCBL');
+            const url=BASE_BG+'/api/mix/v1/market/candles?symbol='+v1sym+'&granularity='+gran+'&limit='+limit;
             const r=await fetch(url);
             const d=await r.json();
-            if(!d||d.code!=='00000')return[];
-            return (d.data||[]).map(c=>({o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4]),v:parseFloat(c[5])})).reverse();
+            if(!Array.isArray(d)||d.length===0)return[];
+            return d.map(c=>({o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4]),v:parseFloat(c[5])})).reverse();
           }catch(e){return[];}
         };
 
-        const c1m=await fetchCandles('1m',500);
+        const c1m=await fetchCandlesV1('60',300);
         addLog('✅ '+asset.short+' 1m: '+c1m.length+' candles','sys');
-        await new Promise(r=>setTimeout(r,100));
-        const c5m=await fetchCandles('5m',200);
-        await new Promise(r=>setTimeout(r,100));
-        const c1h=await fetchCandles('1H',100);
-        await new Promise(r=>setTimeout(r,100));
+        await new Promise(r=>setTimeout(r,150));
+        const c5m=await fetchCandlesV1('300',100);
+        await new Promise(r=>setTimeout(r,150));
+        const c1h=await fetchCandlesV1('3600',72);
+        await new Promise(r=>setTimeout(r,150));
 
         if(Array.isArray(c1m)&&c1m.length>=50){
           S.candles[asset.sym]=c1m;
