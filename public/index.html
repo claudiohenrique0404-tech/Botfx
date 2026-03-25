@@ -1159,113 +1159,40 @@ function startLive(){
   S.pricesLoaded=true;
 
 
-  // Step 1: sync balance
+  // Load candles and sync balance
   setTimeout(async()=>{
     await syncBalance();
     await syncPositions();
-
-    // Safety timeout - unlock bot after 90s max even if candles fail
-  setTimeout(()=>{
-    if(S.warmup){
-      S.warmup=false;
-      S.pricesLoaded=true;
-
-      document.getElementById('bstatus').textContent='⚠️ Timeout — Bot disponível';
-      addLog('⚠️ Timeout ao carregar candles — bot desbloqueado','info');
-      notif('⚠️ Bot desbloqueado (timeout)','#ffcc00');
-    }
-  }, 90000);
-
-  // Step 2: load real candles for all enabled assets
+    addLog('📊 A carregar candles reais da Bitget...','sys');
+    document.getElementById('bstatus').textContent='⏳ A carregar candles reais...';
+    const BASE_BG='https://api.bitget.com';
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
     let loaded=0;
-    const total=enabled.length;
-    addLog('📊 A carregar histórico real — '+total+' ativos...','sys');
-    document.getElementById('bstatus').textContent='⏳ A carregar dados reais (0/'+total+')...';
-
     for(const asset of enabled){
       try{
-        const pt=asset.pt||(asset.cat==='stock'||asset.cat==='index'?'SUSDT-FUTURES':'USDT-FUTURES');
-        document.getElementById('bstatus').textContent='⏳ '+asset.short+' ('+loaded+'/'+total+')...';
-
-        // Fetch candles DIRECTLY from Bitget (public endpoint - faster, no Vercel timeout)
-        addLog('⏳ A carregar '+asset.short+'...','sys');
-        const ptLow=pt.toLowerCase();
-        const BASE_BG='https://api.bitget.com';
-
-        // Use v1 API with seconds granularity - confirmed working
-        const fetchCandlesV1=async(gran,limit)=>{
-          try{
-            const isStk=asset.cat==='stock'||asset.cat==='index';
-            const v1sym=asset.sym+(isStk?'_SUSDT':'_UMCBL');
-            const url=BASE_BG+'/api/mix/v1/market/candles?symbol='+v1sym+'&granularity='+gran+'&limit='+limit;
-            const r=await fetch(url);
-            const d=await r.json();
-            if(!Array.isArray(d)||d.length===0)return[];
-            return d.map((c,i)=>({o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4]),v:parseFloat(c[5]),ts:parseFloat(c[0])})).reverse();
-          }catch(e){return[];}
-        };
-
-        const c1m=await fetchCandlesV1('60',300);
-        addLog('✅ '+asset.short+' 1m: '+c1m.length+' candles','sys');
-        await new Promise(r=>setTimeout(r,150));
-        const c5m=await fetchCandlesV1('300',100);
-        await new Promise(r=>setTimeout(r,150));
-        const c1h=await fetchCandlesV1('3600',72);
-        await new Promise(r=>setTimeout(r,150));
-
-        if(Array.isArray(c1m)&&c1m.length>=50){
-          S.candles[asset.sym]=c1m;
-          if(!S.candles5m)S.candles5m={};
-          if(!S.candles1h)S.candles1h={};
-          if(Array.isArray(c5m)&&c5m.length>0)S.candles5m[asset.sym]=c5m;
-          if(Array.isArray(c1h)&&c1h.length>0)S.candles1h[asset.sym]=c1h;
+        const isStk=asset.cat==='stock'||asset.cat==='index';
+        const v1sym=asset.sym+(isStk?'_SUSDT':'_UMCBL');
+        const url=BASE_BG+'/api/mix/v1/market/candles?symbol='+v1sym+'&granularity=60&limit=300';
+        const r=await fetch(url);
+        const d=await r.json();
+        if(Array.isArray(d)&&d.length>10){
+          S.candles[asset.sym]=d.map(c=>({
+            o:parseFloat(c[1]),h:parseFloat(c[2]),
+            l:parseFloat(c[3]),c:parseFloat(c[4]),
+            v:parseFloat(c[5]),ts:parseFloat(c[0])
+          })).reverse();
           loaded++;
-          addLog('✅ '+asset.short+' — '+c1m.length+'×1m, '+(c5m?.length||0)+'×5m, '+(c1h?.length||0)+'×1h','sys');
-        } else {
-          addLog('⚠️ '+asset.short+' — sem dados suficientes','info');
         }
-      }catch(e){
-        addLog('❌ '+asset.short+': '+e.message,'info');
-      }
+        await new Promise(r=>setTimeout(r,120));
+      }catch(e){addLog('⚠️ '+asset.short+': '+e.message,'info');}
     }
-
-    // If no candles loaded, build synthetic candles from real prices
-    if(loaded===0) {
-      addLog('⚠️ Candles falharam — a construir candles sintéticos com preços reais...','info');
-      await fetchPrices();
-      // Wait a bit and build synthetic candles from current price
-      ASSETS.filter(a=>S.enabledAssets.includes(a.sym)).forEach(a=>{
-        const c=S.candles[a.sym];
-        if(!c||c.length<10) {
-          const lastPrice=c&&c.length>0?c.at(-1).c:a.base;
-          if(lastPrice>0) {
-            // Build 120 synthetic candles using real price as base
-            const synthetic=[];
-            let p=lastPrice*0.98;
-            for(let i=0;i<120;i++){
-              const vol=a.vol||0.002;
-              const o=p,chg=(Math.random()-0.49)*vol*p;
-              const cv=Math.max(o+chg,0.00001);
-              synthetic.push({o,c:cv,h:Math.max(o,cv)*(1+Math.random()*vol*0.3),l:Math.min(o,cv)*(1-Math.random()*vol*0.3),v:Math.random()*500+50});
-              p=cv;
-            }
-            synthetic[synthetic.length-1].c=lastPrice;
-            S.candles[a.sym]=synthetic;
-          }
-        }
-      });
-      addLog('✅ Candles sintéticos criados com preços reais da Bitget','sys');
-    }
-
-    // Step 3: notify when candles are loaded
     if(loaded>0){
-      addLog('🚀 '+loaded+'/'+total+' ativos com dados reais carregados!','sys');
-      notif('🚀 '+loaded+' ativos com dados reais!','#00ff88');
-      if(navigator.vibrate)navigator.vibrate([100,50,100]);
+      addLog('✅ '+loaded+'/'+enabled.length+' ativos com candles reais!','sys');
+      notif('✅ Candles carregados!','#00ff88');
     } else {
-      addLog('⚠️ Candles não carregaram — a usar dados locais','info');
+      addLog('⚠️ Candles falharam — bot usa dados em tempo real','info');
     }
+    document.getElementById('bstatus').textContent='⏹ BOT DESLIGADO — Toca em CONFIG para ligar';
   }, 2000);
 }
 function startSim(){
