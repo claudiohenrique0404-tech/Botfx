@@ -10,11 +10,11 @@
 <title>⚡ BotFX — Bitget Live</title>
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23050709'/%3E%3Ctext y='75' x='15' font-size='70'%3E⚡%3C/text%3E%3C/svg%3E">
 <style>
-
+ 
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;height:100%;overflow:hidden;overscroll-behavior:none;-webkit-font-smoothing:antialiased;}
 #app{display:flex;flex-direction:column;height:100dvh;padding-top:env(safe-area-inset-top,44px);padding-bottom:env(safe-area-inset-bottom,34px);}
-
+ 
 /* SETUP */
 #setup{position:fixed;inset:0;background:#050709;z-index:9999;display:flex;flex-direction:column;align-items:center;padding:24px 20px;padding-top:calc(env(safe-area-inset-top,44px)+20px);overflow-y:auto;opacity:1;}
 .s-logo{font-size:44px;margin-bottom:6px;}
@@ -34,7 +34,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
 .s-step-txt{font-size:10px;color:#7a8899;line-height:1.7;}
 .s-step-txt strong{color:#e8f0fe;}
 .s-step-txt code{color:#00ff88;background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:3px;}
-
+ 
 /* HEADER */
 #hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #1a2030;background:rgba(5,7,9,0.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);flex-shrink:0;gap:6px;}
 .logo{font-size:16px;font-weight:900;letter-spacing:0.08em;}.logo span{color:#ffcc00;}
@@ -48,23 +48,23 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}.pulse{animation:pulse 1.4s infinite;}
 .mode-live{background:rgba(255,34,85,0.15);border:1px solid rgba(255,34,85,0.4);color:#ff2255;font-size:8px;font-weight:900;padding:2px 6px;border-radius:4px;letter-spacing:0.1em;animation:pulse 2s infinite;}
 .mode-sim{background:rgba(255,204,0,0.1);border:1px solid rgba(255,204,0,0.3);color:#ffcc00;font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;}
-
+ 
 #sbar{padding:6px 14px;background:#0a0d12;border-bottom:1px solid #1a2030;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px;}
 .stxt{font-size:10px;color:#7a8899;flex:1;}.scd{font-size:9px;color:#3a4455;}
 #scb{height:2px;background:#111620;flex-shrink:0;}
 #scf{height:100%;background:linear-gradient(90deg,#ffcc00,#ff8800);transition:width 1s linear;}
-
+ 
 #nav{display:flex;border-bottom:1px solid #1a2030;flex-shrink:0;background:#0a0d12;}
 .nb{flex:1;padding:9px 2px;background:none;border:none;color:#3a4455;font-family:'Courier New',monospace;font-size:8px;letter-spacing:0.06em;cursor:pointer;border-bottom:2px solid transparent;display:flex;flex-direction:column;align-items:center;gap:2px;transition:all 0.2s;}
 .nb.on{color:#ffcc00;border-bottom-color:#ffcc00;}
 .ni{font-size:15px;}
-
+ 
 .pg{display:none;flex:1;overflow:hidden;flex-direction:column;}.pg.on{display:flex;}
 .scr{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;padding:10px 12px;}.scr::-webkit-scrollbar{display:none;}
-
+ 
 .card{background:#0a0d12;border:1px solid #1a2030;border-radius:12px;padding:12px;margin-bottom:10px;}
 .card-t{font-size:8px;color:#3a4455;letter-spacing:0.15em;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
-
+ 
 .arow{display:flex;align-items:center;justify-content:space-between;padding:10px 11px;border-radius:10px;margin-bottom:7px;background:rgba(255,255,255,0.02);border:1px solid #1a2030;cursor:pointer;transition:all 0.15s;-webkit-user-select:none;}
 .arow:active{transform:scale(0.97);}.arow.sel{border-color:rgba(255,204,0,0.5);background:rgba(255,204,0,0.04);}.arow.pos{border-color:rgba(170,102,255,0.4);}
 .badge{font-size:8px;font-weight:900;padding:2px 6px;border-radius:4px;letter-spacing:0.06em;}
@@ -72,7 +72,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
 .bs{background:rgba(255,34,85,0.12);color:#ff2255;border:1px solid rgba(255,34,85,0.35);}
 .bw{background:rgba(255,204,0,0.1);color:#ffcc00;border:1px solid rgba(255,204,0,0.25);}
 .ltag{font-size:8px;background:rgba(255,136,0,0.15);color:#ff8800;border:1px solid rgba(255,136,0,0.3);border-radius:3px;padding:1px 5px;font-weight:700;}
-
+ 
 #cwrap{background:#0a0d12;border-bottom:1px solid #1a2030;padding:10px 12px;flex-shrink:0;}
 #chdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
 #cttl{font-size:16px;font-weight:800;}
@@ -81,7 +81,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
 .irow::-webkit-scrollbar{display:none;}
 .ibox{background:#0a0d12;border:1px solid #1a2030;border-radius:8px;padding:6px 9px;min-width:66px;flex-shrink:0;}
 .il{font-size:7px;color:#3a4455;letter-spacing:0.1em;margin-bottom:2px;}.iv{font-size:12px;font-weight:700;}
-
+ 
 .pcard{border-radius:12px;padding:12px;margin-bottom:9px;border:1px solid;}
 .pcard.lng{background:rgba(0,255,136,0.03);border-color:rgba(0,255,136,0.2);}
 .pcard.sht{background:rgba(255,34,85,0.03);border-color:rgba(255,34,85,0.2);}
@@ -93,33 +93,33 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
 .pbar{height:3px;background:#1a2030;border-radius:2px;overflow:hidden;margin-bottom:5px;}
 .pfill{height:100%;border-radius:2px;transition:width 0.6s;}
 .preason{font-size:8px;color:#3a4455;}
-
+ 
 .sgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:11px;}
 .sbox{background:#0a0d12;border:1px solid #1a2030;border-radius:12px;padding:13px;text-align:center;}
 .sl2{font-size:8px;color:#3a4455;letter-spacing:0.12em;margin-bottom:5px;}
 .sv{font-size:21px;font-weight:800;}.ss{font-size:8px;color:#3a4455;margin-top:3px;}
-
+ 
 .le{display:flex;gap:7px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03);align-items:flex-start;}
 .lt{font-size:8px;color:#3a4455;flex-shrink:0;margin-top:1px;}.lm{font-size:10px;line-height:1.5;flex:1;}
 .lwin{color:#00ff88}.lloss{color:#ff2255}.ltrade{color:#aa66ff}.lsys{color:#ffcc00}.linfo{color:#7a8899}
-
+ 
 .srow{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
 .slab{font-size:12px;}.ssub{font-size:9px;color:#3a4455;margin-top:2px;}
 .toggle{width:50px;height:28px;background:#ff2255;border-radius:14px;position:relative;cursor:pointer;transition:background 0.3s;border:none;flex-shrink:0;display:inline-block;}
 .toggle::after{content:'';position:absolute;width:22px;height:22px;background:#fff;border-radius:50%;top:3px;left:3px;transition:transform 0.3s;box-shadow:0 1px 4px rgba(0,0,0,0.5);}
 .toggle.on{background:#00ff88;}
 .toggle.on::after{transform:translateX(22px);}
-
-
+ 
+ 
 .sinput{background:#111620;border:1px solid #1a2030;border-radius:8px;color:#e8f0fe;font-family:'Courier New',monospace;font-size:13px;padding:7px 10px;width:100px;text-align:right;outline:none;}
-
+ 
 .btn{display:flex;align-items:center;justify-content:center;gap:7px;padding:13px;border-radius:10px;font-family:'Courier New',monospace;font-size:12px;font-weight:700;letter-spacing:0.06em;cursor:pointer;border:1px solid;width:100%;margin-bottom:9px;-webkit-user-select:none;transition:all 0.15s;}
 .btn:active{transform:scale(0.97);opacity:0.8;}
 .btn-gold{background:rgba(255,204,0,0.1);border-color:rgba(255,204,0,0.4);color:#ffcc00;}
 .btn-red{background:rgba(255,34,85,0.1);border-color:rgba(255,34,85,0.4);color:#ff2255;}
 .btn-blue{background:rgba(68,136,255,0.1);border-color:rgba(68,136,255,0.4);color:#4488ff;}
 .btn-agg{background:linear-gradient(135deg,rgba(255,136,0,0.15),rgba(255,34,85,0.12));border-color:rgba(255,136,0,0.5);color:#ff8800;}
-
+ 
 #notifs{position:fixed;top:calc(env(safe-area-inset-top,44px)+58px);left:10px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:7px;pointer-events:none;}
 .notif{background:#0a0d12;border-radius:12px;padding:11px 14px;font-size:12px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,0.6);border-left:3px solid;animation:nin 0.3s ease,nout 0.3s ease 3.7s forwards;}
 @keyframes nin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
@@ -133,31 +133,31 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
 </head>
 <body>
 <div id="app">
-
+ 
 <!-- SETUP -->
 <div id="setup">
   <div class="s-logo">⚡</div>
   <div class="s-title">BOT<span style="color:#ffcc00">FX</span></div>
   <div class="s-sub">Bot autónomo com IA · <strong style="color:#ffcc00">Bitget Futures</strong><br>Funciona 100% no iPhone</div>
-
+ 
   <div class="s-warn">
     <strong>⚠️ DINHEIRO REAL</strong> — Este bot abre posições reais na tua conta Bitget Futures. Com alavancagem podes perder o capital rapidamente. Usa apenas dinheiro que podes perder.
   </div>
-
+ 
   <div class="s-card">
     <div class="s-label">🌐 URL DO VERCEL</div>
     <input class="s-input" id="inp-url" type="url" placeholder="https://botfx.vercel.app" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" value="https://claudiohenrique0404-tech-botfx.vercel.app">
     <div class="s-hint">O URL do teu deploy no Vercel (depois de fazeres o deploy abaixo)</div>
   </div>
-
+ 
   <div class="s-card">
     <div class="s-label">💶 CAPITAL NA CONTA FUTURES ($)</div>
     <input class="s-input" id="inp-cap" type="number" value="100" min="10">
   </div>
-
+ 
   <button class="s-btn" onclick="startLive()">⚡ LIGAR AO BITGET REAL</button>
   <button class="s-btn-sim" onclick="startSim()">🔵 Modo simulação (sem dinheiro real)</button>
-
+ 
   <div class="s-card">
     <div class="card-t" style="margin-bottom:14px;">🚀 DEPLOY VERCEL — PASSO A PASSO</div>
     <div class="s-step"><div class="s-num">1</div><div class="s-step-txt">Vai a <strong>github.com</strong> → login com Google → cria repo <code>botfx</code> (Public)</div></div>
@@ -169,7 +169,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
       ⚠️ A Bitget exige uma <strong style="color:#ffcc00">Passphrase</strong> além da API Key e Secret — é uma palavra-passe que defines tu quando crias a API Key na Bitget.
     </div>
   </div>
-
+ 
   <div class="s-card">
     <div class="card-t" style="margin-bottom:14px;">🔑 CRIAR API KEY NA BITGET</div>
     <div class="s-step"><div class="s-num">1</div><div class="s-step-txt">Bitget → Perfil → <strong>API Management</strong> → <strong>Create API</strong></div></div>
@@ -178,7 +178,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
     <div class="s-step"><div class="s-num">4</div><div class="s-step-txt"><strong style="color:#ff2255">NÃO</strong> ativas Withdrawals</div></div>
     <div class="s-step"><div class="s-num">5</div><div class="s-step-txt">Copia <strong>API Key</strong>, <strong>Secret Key</strong> e a tua <strong>Passphrase</strong> para as Notas</div></div>
   </div>
-
+ 
   <div class="s-card">
     <div class="card-t" style="margin-bottom:14px;">📲 INSTALAR NO IPHONE</div>
     <div class="s-step"><div class="s-num">1</div><div class="s-step-txt">Abre o URL do Vercel no <strong>Safari</strong></div></div>
@@ -186,7 +186,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
     <div class="s-step"><div class="s-num">3</div><div class="s-step-txt">Toca <strong>Adicionar</strong> — fica como app nativa ✅</div></div>
   </div>
 </div>
-
+ 
 <!-- MAIN APP -->
 <div id="hdr">
   <div style="display:flex;align-items:center;gap:7px;">
@@ -202,14 +202,14 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
   </div>
   <div class="lbadge" id="lbadge">5x</div>
 </div>
-
+ 
 <div id="sbar">
   <div class="dot dr" id="bdot"></div>
   <div class="stxt" id="bstatus">⏹ BOT DESLIGADO — Toca em CONFIG para ligar</div>
   <div class="scd" id="scd">👁 WATCH</div>
 </div>
 <div id="scb"><div id="scf" style="width:0%"></div></div>
-
+ 
 <div id="nav">
   <button class="nb on" onclick="go('dash')"  id="n-dash"> <span class="ni">⚡</span>LIVE</button>
   <button class="nb"    onclick="go('chart')" id="n-chart"><span class="ni">📈</span>GRÁFICO</button>
@@ -217,9 +217,9 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
   <button class="nb"    onclick="go('perf')"  id="n-perf"> <span class="ni">🏆</span>STATS</button>
   <button class="nb"    onclick="go('cfg')"   id="n-cfg">  <span class="ni">⚙️</span>CONFIG</button>
 </div>
-
+ 
 <div class="pg on" id="pg-dash"><div class="scr" id="dash-scr"></div></div>
-
+ 
 <div class="pg" id="pg-chart">
   <div id="cwrap">
     <div id="chdr">
@@ -233,9 +233,9 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
     <div class="card"><div class="card-t">NÍVEIS DE PREÇO</div><div id="levels"></div></div>
   </div>
 </div>
-
+ 
 <div class="pg" id="pg-pos"><div class="scr"><div id="pos-list"></div></div></div>
-
+ 
 <div class="pg" id="pg-perf">
   <div class="scr">
     <div class="sgrid" id="sgrid"></div>
@@ -249,7 +249,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
     <div class="card"><div class="card-t">LOG</div><div id="loglist"></div></div>
   </div>
 </div>
-
+ 
 <div class="pg" id="pg-cfg">
   <div class="scr">
     <div class="card">
@@ -263,7 +263,7 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
       <div class="srow"><div><div class="slab">Cooldown por Ativo</div><div class="ssub">Segundos após cada trade (padrão 30)</div></div><input class="sinput" type="number" id="s-int" value="20" min="5" max="120"></div>
       <div class="srow"><div><div class="slab">Máx. Posições</div><div class="ssub">Abertas em simultâneo</div></div><input class="sinput" type="number" id="s-max" value="3" min="1" max="10"></div>
       <div class="srow"><div><div class="slab">Take Profit (R)</div><div class="ssub">Ratio risco/reward</div></div><input class="sinput" type="number" id="s-tp" value="4" min="1" max="10" step="0.5"></div>
-
+ 
       <div class="srow"><div><div class="slab">🎯 Meta Diária ($)</div><div class="ssub">Para o bot ao atingir este lucro no dia (0=desativado)</div></div><input class="sinput" type="number" id="s-dailygoal" value="30" min="0" step="5"></div>
       <div class="srow"><div><div class="slab">🛑 Stop Diário ($)</div><div class="ssub">Para o bot ao perder este valor no dia (0=desativado)</div></div><input class="sinput" type="number" id="s-dailystop" value="20" min="0" step="5"></div>
     </div>
@@ -293,14 +293,14 @@ html,body{background:#050709;color:#e8f0fe;font-family:'Courier New',monospace;h
     </div>
   </div>
 </div>
-
+ 
 </div>
 <div id="aith"><div class="dot dy pulse"></div>IA A DECIDIR...</div>
 <div id="notifs"></div>
-
+ 
 <script>
 const AI_API = 'https://api.anthropic.com/v1/messages';
-
+ 
 const S = {
   capital:100, startCapital:100,
   positions:[], log:[], closed:[],
@@ -313,7 +313,7 @@ const S = {
   enabledAssets:null,
   apiUrl:null, isLive:false,
 };
-
+ 
 const ASSETS = [
   // ── CRYPTO (USDT-FUTURES) ── confirmados Bitget
   {sym:"BTCUSDT",   short:"BTC",   base:67400, vol:0.016, cat:"crypto",    label:"Bitcoin",          p:2, pt:"USDT-FUTURES"},
@@ -356,8 +356,8 @@ const ASSETS = [
   {sym:"XAUUSDT",   short:"GOLD",  base:2340,  vol:0.006, cat:"commodity", label:"Ouro",             p:3, pt:"USDT-FUTURES"},
   {sym:"XAGUSDT",   short:"SILV",  base:28.5,  vol:0.012, cat:"commodity", label:"Prata",            p:3, pt:"USDT-FUTURES"},
 ];
-
-
+ 
+ 
 const CATEGORIES = [
   { id:'crypto',    label:"🔥 Crypto",           color:'#00ff88' },
   { id:'index',     label:"📈 Índices",           color:'#4488ff' },
@@ -372,7 +372,7 @@ ASSETS.forEach(a=>{
   // In SIM mode, seed with simulated data
   S.candles[a.sym] = S.isLive ? [] : seedC(a.base,120,a.vol);
 });
-
+ 
 // API call to Vercel proxy
 async function api(body) {
   if (!S.apiUrl) return null;
@@ -384,7 +384,7 @@ async function api(body) {
     return await r.json();
   } catch(e) { addLog('⚠️ Erro API: '+e.message,'sys'); return null; }
 }
-
+ 
 async function syncBalance() {
   if (!S.isLive) return;
   // Fix startCapital per day - reset at midnight
@@ -439,7 +439,7 @@ async function syncBalance() {
     }
   }
 }
-
+ 
 async function fetchPrices() {
   if (S.isLive && S.apiUrl) {
     // Fetch ALL prices in 2 calls (one per productType) — much faster than per-symbol
@@ -518,7 +518,7 @@ async function fetchPrices() {
     } catch {}
   }
 }
-
+ 
 async function placeLiveTrade(asset, sg, lev, riskPct) {
   const side = sg.action==='LONG'?'BUY':'SELL';
   const riskAmt = S.capital * riskPct * lev;
@@ -537,7 +537,7 @@ async function placeLiveTrade(asset, sg, lev, riskPct) {
   notif(`❌ ${err}`,'#ff2255');
   return null;
 }
-
+ 
 async function closeLiveTrade(pos) {
   if(!pos.isReal)return;
   const asset=ASSETS.find(a=>a.sym===pos.sym);
@@ -564,26 +564,26 @@ async function closeLiveTrade(pos) {
     addLog('✅ Posição fechada na Bitget: '+pos.sym,'win');
   }
 }
-
+ 
 // Price engine
 function seedC(base,n,vol){let p=base*(0.87+Math.random()*0.1);const out=[];for(let i=0;i<n;i++){const o=p,chg=(Math.random()-0.478)*vol*p,c=Math.max(o+chg,0.00001);out.push({o,c,h:Math.max(o,c)*(1+Math.random()*vol*0.4),l:Math.min(o,c)*(1-Math.random()*vol*0.4),v:Math.random()*900+50});p=c;}return out;}
 function tickC(prev,vol){const o=prev.c,chg=(Math.random()-0.482)*vol*o,c=Math.max(o+chg,0.00001);return{o,c,h:Math.max(o,c)*(1+Math.random()*vol*0.3),l:Math.min(o,c)*(1-Math.random()*vol*0.3),v:Math.random()*900+50};}
-
+ 
 // Indicators
 function ema(c,n){if(c.length<n)return c.at(-1)?.c??0;const k=2/(n+1);let e=c.slice(0,n).reduce((s,x)=>s+x.c,0)/n;for(let i=n;i<c.length;i++)e=c[i].c*k+e*(1-k);return e;}
 function rsi(c,n=14){if(c.length<n+1)return 50;let g=0,l=0;for(let i=c.length-n;i<c.length;i++){const d=c[i].c-c[i-1].c;if(d>0)g+=d;else l+=Math.abs(d);}return 100-100/(1+g/(l||0.001));}
 function atr(c,n=14){const s=c.slice(-n);let sum=0;for(let i=1;i<s.length;i++)sum+=Math.max(s[i].h-s[i].l,Math.abs(s[i].h-s[i-1].c),Math.abs(s[i].l-s[i-1].c));return sum/(s.length-1||1);}
 function bb(c,n=20){const s=c.slice(-n).map(x=>x.c),m=s.reduce((a,b)=>a+b,0)/n,std=Math.sqrt(s.reduce((a,b)=>a+(b-m)**2,0)/n);return{u:m+2*std,l:m-2*std,m};}
 function macd(c){return ema(c,12)-ema(c,26);}
-
+ 
 // ═══════════════════════════════════════════
 // MARKET INTELLIGENCE ENGINE v3.0
 // ═══════════════════════════════════════════
-
+ 
 // ML signal tracker
 const SIG_HISTORY = JSON.parse(localStorage.getItem('sig_history')||'{}');
 const ASSET_PERF = JSON.parse(localStorage.getItem('asset_perf')||'{}');
-
+ 
 function recordAssetResult(sym, won){
   if(!ASSET_PERF[sym])ASSET_PERF[sym]={wins:0,total:0};
   ASSET_PERF[sym].wins+=won?1:0;
@@ -607,13 +607,13 @@ function getSigWeight(sigType){
   if(!h||h.total<5)return 1.0;
   return 0.5+(h.wins/h.total);
 }
-
+ 
 // Sentiment cache
 let SENTIMENT={fearGreed:50,trend:'neutral',lastFetch:0,newsScore:0};
 let OB_CACHE={}; // order book cache per symbol
 let SOCIAL_SENTIMENT={}; // per-asset social sentiment cache
 let SOCIAL_LAST_FETCH=0;
-
+ 
 // Reddit sentiment via public JSON API (no auth needed)
 const REDDIT_SUBS = {
   'BTCUSDT':  ['bitcoin','CryptoCurrency'],
@@ -629,7 +629,7 @@ const REDDIT_SUBS = {
   'AMDUSDT':  ['AMD_Stock','stocks'],
   'METAUSDT': ['stocks','wallstreetbets'],
 };
-
+ 
 async function fetchRedditSentiment(sym){
   const subs=REDDIT_SUBS[sym];
   if(!subs)return 0;
@@ -662,7 +662,7 @@ async function fetchRedditSentiment(sym){
     return count>0?Math.max(-1,Math.min(1,totalScore/(count*5))):0;
   }catch{return 0;}
 }
-
+ 
 async function fetchSocialSentiment(){
   if(Date.now()-SOCIAL_LAST_FETCH<600000)return; // cache 10min
   SOCIAL_LAST_FETCH=Date.now();
@@ -676,13 +676,13 @@ async function fetchSocialSentiment(){
     }
   }
 }
-
+ 
 function getSocialScore(sym){
   const s=SOCIAL_SENTIMENT[sym];
   if(!s||Date.now()-s.time>1200000)return 0; // stale after 20min
   return s.score;
 }
-
+ 
 async function fetchOrderBook(sym){
   if(!S.isLive||!S.apiUrl)return 0;
   try{
@@ -704,7 +704,7 @@ let MARKET_HOURS={isOpen:false,session:'none',usOpen:false,euOpen:false,cryptoGo
 let BTC_TREND=0;
 let NEWS_FEED=[];
 let NEWS_LAST_FETCH=0;
-
+ 
 async function fetchNews(){
   if(Date.now()-NEWS_LAST_FETCH<600000)return; // cache 10min
   try{
@@ -727,7 +727,7 @@ async function fetchNews(){
     else SENTIMENT.newsScore=0;
   }catch{ NEWS_FEED=[]; }
 }
-
+ 
 async function fetchSentiment(){
   if(Date.now()-SENTIMENT.lastFetch<300000)return;
   try{
@@ -737,7 +737,7 @@ async function fetchSentiment(){
     SENTIMENT.lastFetch=Date.now();
   }catch{}
 }
-
+ 
 function updateMarketHours(){
   const now=new Date();
   const utcH=now.getUTCHours();
@@ -770,14 +770,14 @@ function updateMarketHours(){
     et4D, et4H
   };
 }
-
+ 
 function updateBtcTrend(candles){
   const btc=candles&&candles['BTCUSDT'];
   if(!btc||btc.length<20)return;
   const s=btc.slice(-20);
   BTC_TREND=((s.at(-1).c-s[0].c)/s[0].c)*100;
 }
-
+ 
 function stoch(c,n=14){
   const s=c.slice(-n);
   const lo=Math.min(...s.map(x=>x.l)),hi=Math.max(...s.map(x=>x.h));
@@ -807,7 +807,7 @@ function detectDivergence(c){
   if(pt>0&&rt<-2)return -1;
   return 0;
 }
-
+ 
 function computeSig(c,asset){
   if(!c||c.length<60)return{action:'WAIT',conf:0,score:0,r:50,e9:0,e21:0,e50:0,bv:{u:0,l:0,m:0},price:c?.at(-1)?.c??0,entry:0,sl:0,tp1:0,tp2:0,atrV:0,mom:0,mc:0,volStr:1,mlWeight:1,sigType:'other'};
   // Wick manipulation filter — ignore if last candle has huge wick
@@ -827,17 +827,17 @@ function computeSig(c,asset){
   const volStr=volumeStrength(c),diverg=detectDivergence(c);
   const e9p=ema(c.slice(0,-1),9),e21p=ema(c.slice(0,-1),21);
   const crossUp=e9>e21&&e9p<=e21p,crossDn=e9<e21&&e9p>=e21p;
-
+ 
   const isCrypto=asset?.cat==='crypto';
   const isStock=asset?.cat==='stock';
   const isIndex=asset?.cat==='index';
-
+ 
   // Market hours filter
   if((isStock||isIndex)&&!MARKET_HOURS.stockOpen)
     return{action:'WAIT',conf:0,score:0,r,e9,e21,e50,bv,price,entry:price,sl:0,tp1:0,tp2:0,atrV,mom,mc,volStr,mlWeight:1,sigType:'hours'};
   if(isCrypto&&!MARKET_HOURS.cryptoGood)
     return{action:'WAIT',conf:0,score:0,r,e9,e21,e50,bv,price,entry:price,sl:0,tp1:0,tp2:0,atrV,mom,mc,volStr,mlWeight:1,sigType:'hours'};
-
+ 
   let bull=0,bear=0;
   // RSI
   if(r<25)bull+=5;else if(r<35)bull+=3;else if(r<45)bull+=1;
@@ -912,7 +912,7 @@ function computeSig(c,asset){
   let action='WAIT';
   if(score>=minScoreAdj)action='LONG';else if(score<=-minScoreAdj)action='SHORT';
   const finalConf=Math.min(1,conf*confMult);
-
+ 
   const tpR=parseFloat(document.getElementById('s-tp')?.value)||4;
   const maxProfit=parseFloat(document.getElementById('s-maxprofit')?.value)||0;
   // Dynamic SL: adapt to volatility regime
@@ -926,8 +926,8 @@ function computeSig(c,asset){
   const tp2=action==='LONG'?entry+sd*tpR:entry-sd*tpR;
   return{action,conf:finalConf,score:rawScore,r,e9,e21,e50,bv,price,entry,sl,tp1,tp2,atrV,mom,mc,st,volStr,sigType,mlWeight,regime:isSideways?'SIDEWAYS':isTrending?'TRENDING':'NORMAL'};
 }
-
-
+ 
+ 
 // AI Scanner
 async function runScan(force=false){
   // Check daily goal/stop
@@ -995,7 +995,7 @@ async function runScan(force=false){
   S.aiThinking=false;document.getElementById('aith').classList.remove('on');
   document.getElementById('bstatus').textContent=S.isLive?'✅ Ordem REAL enviada!':'✅ Trade simulado';
 }
-
+ 
 async function openPos(asset,sg,reason,conf,riskPct,lev){
   const riskEur=S.capital*riskPct;
   // Apply slippage simulation in sim mode (0.1% for crypto, 0.05% for indices)
@@ -1015,7 +1015,7 @@ async function openPos(asset,sg,reason,conf,riskPct,lev){
   notif(`${isReal?'🔴':'🔵'} ${sg.action} ${asset.sym} ${lev}x`,'#aa66ff');
   renderDash();renderPos();
 }
-
+ 
 function checkPos(){
   if(!S.positions.length)return;
   const toClose=[];
@@ -1138,7 +1138,7 @@ function checkPos(){
     if(S.isLive)syncBalance();
   });
 }
-
+ 
 // Setup
 function startLive(){
   const url=document.getElementById('inp-url').value.trim().replace(/\/$/,'');
@@ -1153,12 +1153,12 @@ function startLive(){
   document.getElementById('setup').style.display='none';
   addLog('🔴 BITGET LIVE ATIVO — '+url,'sys');
   notif('🔴 Bitget Real conectado!','#ff2255');
-
+ 
   // Block bot toggle until candles are loaded
   S.warmup=false;
   S.pricesLoaded=true;
-
-
+ 
+ 
   // Load candles and sync balance
   setTimeout(async()=>{
     await syncBalance();
@@ -1205,7 +1205,7 @@ function startSim(){
   addLog('🔵 Modo simulação','sys');notif('🔵 Simulação ativa','#ffcc00');
 }
 function goSetup(){document.getElementById('setup').style.display='flex';}
-
+ 
 function loadSaved(){
   const url=localStorage.getItem('botfx_url')||'https://botfx.vercel.app';
   const cap=localStorage.getItem('botfx_cap');
@@ -1217,12 +1217,12 @@ function loadSaved(){
   if(tgt){const el=document.getElementById('tg-token');if(el)el.value=tgt;}
   if(tgc){const el=document.getElementById('tg-chatid');if(el)el.value=tgc;}
 }
-
+ 
 // Render helpers
 function fp(p,a){if(!p&&p!==0)return'—';if(p>=10000)return p.toFixed(0);if(p>=100)return p.toFixed(2);if(p>=1)return p.toFixed(3);return p.toFixed(5);}
 function fc(v){return v>=0?'#00ff88':'#ff2255';}
 function spark(c,w=140){const pts=c.slice(-20).map(x=>x.c);if(pts.length<2)return'';const h=20,min=Math.min(...pts),max=Math.max(...pts),range=max-min||1;const up=pts.at(-1)>=pts[0],col=up?'#00ff88':'#ff2255';const p=pts.map((x,i)=>`${(i/(pts.length-1))*w},${h-((x-min)/range)*(h-2)-1}`).join(' ');return`<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${p}" fill="none" stroke="${col}" stroke-width="1.5" opacity="0.75"/></svg>`;}
-
+ 
 function renderDash(){
   let html='';
   CATEGORIES.forEach(cat=>{
@@ -1238,7 +1238,7 @@ function renderDash(){
         </div>
         <span style="font-size:10px;color:${catEnabled?cat.color:'#3a4455'};">${catEnabled?'ATIVO':'OFF'}</span>
       </div>`;
-
+ 
     if(catEnabled){
       catAssets.forEach(a=>{
         const c=S.candles[a.sym]??[];
@@ -1274,7 +1274,7 @@ function renderDash(){
   });
   document.getElementById('dash-scr').innerHTML=html;
 }
-
+ 
 function toggleCat(catId){
   if(S.enabledCats.includes(catId)){
     if(S.enabledCats.length<=1){notif('Mantém pelo menos uma categoria ativa','#ffcc00');return;}
@@ -1292,7 +1292,7 @@ function toggleCat(catId){
   renderCatToggles();
   renderAssetToggles();
 }
-
+ 
 function renderChart(){
   const a=ASSETS.find(x=>x.sym===S.selectedSym);
   const c=S.candles[S.selectedSym]??[];
@@ -1337,7 +1337,7 @@ function renderChart(){
     ].map(([k,v,cl])=>`<div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="font-size:10px;color:#7a8899">${k}</span><span style="font-size:11px;color:${cl};font-weight:700">$${fp(v,a)}</span></div>`).join('');
   }
 }
-
+ 
 function renderPos(){
   const el=document.getElementById('pos-list');
   const cnt=S.positions.length;
@@ -1374,7 +1374,7 @@ function renderPos(){
     </div>`;
   }).join('');
 }
-
+ 
 function renderStats(){
   const{wins,losses,totalPnl}=S.stats,tot=wins+losses;
   const wr=tot>0?((wins/tot)*100).toFixed(0)+'%':'—';
@@ -1469,7 +1469,7 @@ function renderStats(){
     }
   }
 }
-
+ 
 function renderCatToggles(){
   document.getElementById('cattogs').innerHTML = CATEGORIES.map(cat=>`
     <div class="srow">
@@ -1503,7 +1503,7 @@ function renderAssetToggles(){setTimeout(updToggleColors,50);
   });
   document.getElementById('atogs').innerHTML=html;
 }
-
+ 
 function updateHdr(){
   const op=S.positions.reduce((s,pos)=>{const price=S.candles[pos.sym]?.at(-1)?.c??pos.entry;return s+(pos.dir==='LONG'?price-pos.entry:pos.entry-price)*pos.size;},0);
   const eq=S.capital+op,{wins,losses,totalPnl}=S.stats,tot=wins+losses,wr=tot>0?((wins/tot)*100).toFixed(0)+'%':'—';
@@ -1515,7 +1515,7 @@ function updateHdr(){
   document.getElementById('h-tr').textContent=tot;
   document.getElementById('lbadge').textContent=(document.getElementById('s-lev')?.value||5)+'x';
 }
-
+ 
 async function sendTelegram(msg){
   const token=localStorage.getItem('tg_token');
   const chatId=localStorage.getItem('tg_chatid');
@@ -1552,7 +1552,7 @@ function toggleBot(){
     S.pricesLoaded=false;
     document.getElementById('bstatus').textContent='⏳ A carregar candles reais da Bitget...';
     notif('▶ Bot ligado — a carregar dados reais...','#ffcc00');
-
+ 
     // Candles already loaded in startLive — just activate
     document.getElementById('bstatus').textContent='🤖 BOT ATIVO — A analisar mercados...';
     notif('▶ Bot ligado','#00ff88');
@@ -1605,10 +1605,10 @@ function closeAll(){
   S.positions=[];S.equityCurve.push(S.capital);
   notif('🛑 Tudo fechado','#ff2255');renderPos();updateHdr();
 }
-
+ 
 // Loops
 setInterval(()=>{if(!S.isLive){ASSETS.forEach(a=>{const c=S.candles[a.sym];if(c&&c.length>0)S.candles[a.sym]=[...c.slice(-119),tickC(c.at(-1),a.vol)];});}const ap=document.querySelector('.pg.on')?.id;if(ap==='pg-dash')renderDash();if(ap==='pg-chart')renderChart();checkPos();updateHdr();},1500);
-
+ 
 // Every 60s in LIVE mode: close current candle and open new one
 setInterval(()=>{
   if(!S.isLive)return;
@@ -1633,13 +1633,13 @@ setInterval(async()=>{
 // Layer 1: Fast watcher every 2s (local, no API)
 // Layer 2: AI confirmation when strong signal found
 // ═══════════════════════════════════════════
-
+ 
 const COOLDOWNS={};
 const WATCH_SCORES={};
 let LAYER2_RUNNING=false;
 let TOTAL_SCANS=0;
 let SIGNALS_FOUND=0;
-
+ 
 function fastScore(c,asset){
   if(!c||c.length<30)return 0;
   const r=rsi(c),e9=ema(c,9),e21=ema(c,21);
@@ -1659,7 +1659,7 @@ function fastScore(c,asset){
   }
   return s;
 }
-
+ 
 // Multi-timeframe: build synthetic higher timeframe candles
 function buildHTF(candles, period){
   const result=[];
@@ -1675,7 +1675,7 @@ function buildHTF(candles, period){
   }
   return result;
 }
-
+ 
 function multiTFScore(candles, asset){
   if(candles.length<120)return 0;
   // Build 4H and 1D equivalent candles from 1H data
@@ -1696,10 +1696,10 @@ function multiTFScore(candles, asset){
   }
   return mtfScore; // -5 to +5
 }
-
+ 
 async function watcherTick(){
   if(!S.botActive)return;
-
+ 
   // Portfolio total risk limit (max 10% capital at risk simultaneously)
   const totalRiskOpen=S.positions.reduce((s,p)=>s+p.riskEur,0);
   const maxPortfolioRisk=S.capital*0.10;
@@ -1770,7 +1770,7 @@ async function watcherTick(){
     }
   }
 }
-
+ 
 async function layer2Confirm(asset,direction){
   if(LAYER2_RUNNING)return;
   // Check daily goal before proceeding
@@ -1885,10 +1885,10 @@ async function layer2Confirm(asset,direction){
   LAYER2_RUNNING=false;S.aiThinking=false;
   document.getElementById('aith').classList.remove('on');
 }
-
+ 
 // Start watcher
 setInterval(watcherTick,5000);
-
+ 
 // Manual force scan
 async function runScan(force=false){
   if(!S.botActive&&!force)return;
@@ -1920,7 +1920,7 @@ async function runScan(force=false){
   const best=cands[0];
   await openPos(best.a,best.sg,'Scan manual',best.sg.conf,riskPct,lev);
 }
-
+ 
 setInterval(fetchSentiment,300000);
 setInterval(()=>{ if(S.isLive)syncPositions(); },10000);
 setInterval(()=>{ if(S.isLive)syncBalance(); },3000);
@@ -1982,7 +1982,7 @@ setTimeout(()=>{
     if(sa)S.enabledAssets=JSON.parse(sa);
   }catch{}
 },100);
-
+ 
 addLog('⚡ BotFX Bitget iniciado','sys');
 document.addEventListener('touchmove',e=>{if(!e.target.closest('.scr')&&!e.target.closest('#setup'))e.preventDefault();},{passive:false});
 </script>
