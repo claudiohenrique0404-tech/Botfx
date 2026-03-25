@@ -146,10 +146,28 @@ module.exports = async (req, res) => {
       const { symbol, side, quantity, stopLoss, takeProfit, leverage } = p;
       const pt = getPT(symbol, p.productType);
       const pos = side === 'BUY' ? 'long' : 'short';
-      const lev = isStock(symbol) ? Math.min(parseInt(leverage)||5, 10) : parseInt(leverage)||5;
-      await bg('POST', '/api/v2/mix/account/set-leverage', { symbol, productType: pt, marginCoin: 'USDT', leverage: String(lev), holdSide: pos }).catch(() => {});
-      await bg('POST', '/api/v2/mix/account/set-margin-mode', { symbol, productType: pt, marginCoin: 'USDT', marginMode: 'isolated' }).catch(() => {});
+      const lev = isStock(symbol) ? Math.min(parseInt(leverage)||2, 10) : parseInt(leverage)||2;
+      
+      // Set margin mode first
+      try {
+        await bg('POST', '/api/v2/mix/account/set-margin-mode', { symbol, productType: pt, marginCoin: 'USDT', marginMode: 'isolated' });
+      } catch(e) { console.log('margin mode:', e.message); }
+      await new Promise(r => setTimeout(r, 200));
+      
+      // Set leverage - if this fails, abort the order
+      try {
+        await bg('POST', '/api/v2/mix/account/set-leverage', { symbol, productType: pt, marginCoin: 'USDT', leverage: String(lev), holdSide: pos });
+      } catch(e) {
+        // Try without holdSide
+        try {
+          await bg('POST', '/api/v2/mix/account/set-leverage', { symbol, productType: pt, marginCoin: 'USDT', leverage: String(lev) });
+        } catch(e2) {
+          console.log('leverage set failed:', e2.message);
+          throw new Error('Nao foi possivel definir alavancagem ' + lev + 'x: ' + e2.message);
+        }
+      }
       await new Promise(r => setTimeout(r, 300));
+      
       const order = await bg('POST', '/api/v2/mix/order/place-order', {
         symbol, productType: pt, marginCoin: 'USDT', marginMode: 'isolated',
         side: side === 'BUY' ? 'buy' : 'sell', tradeSide: 'open',
