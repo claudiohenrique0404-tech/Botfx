@@ -1145,8 +1145,7 @@ function startLive(){
   const cap=parseFloat(document.getElementById('inp-cap').value)||100;
   if(!url||!url.startsWith('http')){notif('⚠️ Insere o URL do Vercel','#ff2255');return;}
   S.apiUrl=url;S.isLive=true;S.capital=cap;S.startCapital=cap;S.equityCurve=[cap];
-  // Clear all simulated candles - LIVE mode uses only real data
-  ASSETS.forEach(a=>{ S.candles[a.sym]=[]; });
+  // Don't clear candles yet - keep simulated until real ones load
   localStorage.setItem('botfx_url',url);localStorage.setItem('botfx_cap',cap);
   document.getElementById('mbadge').className='mode-live';document.getElementById('mbadge').textContent='LIVE';
   document.getElementById('cfg-badge').className='mode-live';document.getElementById('cfg-badge').textContent='LIVE';
@@ -1192,6 +1191,8 @@ function startLive(){
     if(loaded>0){
       addLog('✅ '+loaded+'/'+enabled.length+' ativos com candles reais!','sys');
       notif('✅ Candles carregados!','#00ff88');
+      // Force re-render dashboard with new candle data
+      renderDash();
     } else {
       addLog('⚠️ Candles falharam — bot usa dados em tempo real','info');
     }
