@@ -224,9 +224,14 @@ let lastRun = null;
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
-  // GET request - return last log (no auth needed to view)
-  if (req.method === 'GET' && req.query && req.query.view === '1') {
-    return res.json({ lastRun, log: lastLog });
+  // GET with view=1 - show last log
+  if (req.method === 'GET' && req.url && req.url.includes('view=1')) {
+    return res.json({ lastRun, log: lastLog, message: lastLog.length === 0 ? 'Ainda sem execucoes' : 'OK' });
+  }
+
+  // GET without auth - unauthorized
+  if (req.method === 'GET') {
+    return res.status(401).json({ error: 'Use ?view=1 para ver o log' });
   }
 
   const authHeader = req.headers['authorization'];
