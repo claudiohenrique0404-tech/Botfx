@@ -1165,27 +1165,24 @@ function startLive(){
     addLog('📊 A carregar candles reais da Bitget...','sys');
     document.getElementById('bstatus').textContent='⏳ A carregar candles reais...';
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
+    // Candles desde meia-noite
+    const nowD=new Date();
+    const msSinceMidnight=nowD-new Date(nowD.getFullYear(),nowD.getMonth(),nowD.getDate());
+    const candleLimit=Math.min(Math.ceil(msSinceMidnight/60000)+10,1000);
     let loaded=0;
     for(const asset of enabled){
       try{
-        const isStk=asset.cat==='stock'||asset.cat==='index';
-        const v1sym=asset.sym+(isStk?'_SUSDT':'_UMCBL');
-        const url=BASE_BG+'/api/mix/v1/market/candles?symbol='+v1sym+'&granularity=60&limit=300';
-        addLog('⏳ '+asset.short+' — a buscar candles...','sys');
-        const r=await fetch(url);
-        if(!r.ok){addLog('❌ '+asset.short+' HTTP '+r.status,'info');continue;}
-        const d=await r.json();
-        addLog('📦 '+asset.short+' resposta: '+(Array.isArray(d)?d.length+' items':JSON.stringify(d).slice(0,50)),'sys');
+        // Usa proxy Vercel com API v2
+        const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
-          S.candles[asset.sym]=d.map(c=>({
-            o:parseFloat(c[1]),h:parseFloat(c[2]),
-            l:parseFloat(c[3]),c:parseFloat(c[4]),
-            v:parseFloat(c[5]),ts:parseFloat(c[0])
-          })).reverse();
+          S.candles[asset.sym]=d;
           loaded++;
+          addLog('✅ '+asset.short+' — '+d.length+' candles','sys');
+        } else {
+          addLog('⚠️ '+asset.short+' — '+JSON.stringify(d).slice(0,40),'info');
         }
-        await new Promise(r=>setTimeout(r,120));
-      }catch(e){addLog('⚠️ '+asset.short+': '+e.message,'info');}
+        await new Promise(r=>setTimeout(r,150));
+      }catch(e){addLog('❌ '+asset.short+': '+e.message,'info');}
     }
     if(loaded>0){
       addLog('✅ '+loaded+'/'+enabled.length+' ativos com candles reais!','sys');
