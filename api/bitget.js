@@ -13,6 +13,17 @@ const BASE = 'https://api.bitget.com';
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  // Quick test endpoint - GET /api/bitget?test=candles
+  if (req.method === 'GET' && req.url && req.url.includes('test=candles')) {
+    try {
+      const r = await fetch('https://api.bitget.com/api/mix/v1/market/candles?symbol=BTCUSDT_UMCBL&granularity=60&limit=5');
+      const d = await r.json();
+      return res.json({ ok: true, type: typeof d, isArray: Array.isArray(d), length: Array.isArray(d) ? d.length : 0, sample: Array.isArray(d) ? d[0] : d });
+    } catch(e) {
+      return res.json({ ok: false, error: e.message });
+    }
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -51,28 +62,17 @@ module.exports = async (req, res) => {
     } else if (action === 'account') {
       result = await bg('GET', '/api/v2/mix/account/accounts?productType=USDT-FUTURES');
     } else if (action === 'candles') {
-      // Use Bitget v1 API - more stable, uses seconds for granularity
+      // Bitget v2 API - v1 was decommissioned
       const sym = p.symbol || 'BTCUSDT';
       const isStockSym = STOCKS.some(function(x) { return (sym||'').toUpperCase().startsWith(x); });
-      
-      // v1 requires symbol suffix
-      const v1sym = isStockSym ? sym + '_SUSDT' : sym + '_UMCBL';
-      
-      // granularity in seconds: 1m=60, 5m=300, 1H=3600
-      const granMap = { '1m': '60', '5m': '300', '15m': '900', '1H': '3600', '4H': '14400', '1D': '86400' };
-      const gran = granMap[p.granularity] || '60';
-      const limit = Math.min(parseInt(p.limit) || 200, 1000);
-      
-      // Try v1 first
-      const url = BASE + '/api/mix/v1/market/candles?symbol=' + v1sym + '&granularity=' + gran + '&limit=' + limit;
-      console.log('Fetching candles v1:', url);
+      const pt = isStockSym ? 'susdt-futures' : 'usdt-futures';
+      const gran = p.granularity || '1m';
+      const limit = Math.min(parseInt(p.limit) || 300, 1000);
+      const url = BASE + '/api/v2/mix/market/candles?symbol=' + sym + '&productType=' + pt + '&granularity=' + gran + '&limit=' + limit;
       const r = await fetch(url);
       const d = await r.json();
-      console.log('Candles v1 response:', typeof d, Array.isArray(d) ? d.length + ' items' : JSON.stringify(d).slice(0,100));
-      
-      if (Array.isArray(d) && d.length > 0) {
-        // v1 returns array directly: [timestamp, open, high, low, close, volume]
-        result = d.map(function(c) {
+      if (d && d.code === '00000' && Array.isArray(d.data) && d.data.length > 0) {
+        result = d.data.map(function(c) {
           return {
             ts: parseFloat(c[0]),
             o: parseFloat(c[1]), h: parseFloat(c[2]),
@@ -81,24 +81,7 @@ module.exports = async (req, res) => {
           };
         }).reverse();
       } else {
-        // Fallback to v2
-        const pt = isStockSym ? 'susdt-futures' : 'usdt-futures';
-        const url2 = BASE + '/api/v2/mix/market/candles?symbol=' + sym + '&productType=' + pt + '&granularity=' + (p.granularity||'1m') + '&limit=' + limit;
-        console.log('Fallback v2:', url2);
-        const r2 = await fetch(url2);
-        const d2 = await r2.json();
-        console.log('Candles v2 response:', d2?.code, d2?.data?.length);
-        if (d2 && d2.code === '00000' && Array.isArray(d2.data)) {
-          result = d2.data.map(function(c) {
-            return {
-              o: parseFloat(c[1]), h: parseFloat(c[2]),
-              l: parseFloat(c[3]), c: parseFloat(c[4]),
-              v: parseFloat(c[5])
-            };
-          }).reverse();
-        } else {
-          result = [];
-        }
+        result = [];
       }
     } else if (action === 'allPrices') {
       // Try v2 with lowercase productType first
