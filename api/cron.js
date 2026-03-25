@@ -217,7 +217,18 @@ async function fetchFearGreed() {
 }
 
 // ═══ HANDLER ═══
+// Store last run log in memory
+let lastLog = [];
+let lastRun = null;
+
 module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  // GET request - return last log (no auth needed to view)
+  if (req.method === 'GET' && req.query && req.query.view === '1') {
+    return res.json({ lastRun, log: lastLog });
+  }
+
   const authHeader = req.headers['authorization'];
   if (authHeader !== 'Bearer ' + process.env.CRON_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -367,10 +378,14 @@ module.exports = async (req, res) => {
     }
 
     addLog('✅ Cron completo — ' + opened + ' trades abertos');
+    lastLog = log;
+    lastRun = new Date().toISOString();
     return res.json({ log, opened, positions: openPositions.length + opened });
 
   } catch(e) {
     addLog('❌ Erro fatal: ' + e.message);
+    lastLog = log;
+    lastRun = new Date().toISOString();
     return res.status(500).json({ error: e.message, log });
   }
 };
