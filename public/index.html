@@ -495,7 +495,7 @@ async function fetchPrices() {
           return;
         }
         const last = {...c.at(-1)};
-        S.candles[asset.sym] = [...c.slice(-499), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
+        S.candles[asset.sym] = [...c.slice(-500), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
       });
     }
   } else {
@@ -513,7 +513,7 @@ async function fetchPrices() {
         const c = S.candles[asset.sym];
         if (!c || c.length === 0) return;
         const last = {...c.at(-1)};
-        S.candles[asset.sym] = [...c.slice(-119), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
+        S.candles[asset.sym] = [...c.slice(-500), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
       });
     } catch {}
   }
@@ -1607,7 +1607,7 @@ function closeAll(){
 }
 
 // Loops
-setInterval(()=>{if(!S.isLive){ASSETS.forEach(a=>{const c=S.candles[a.sym];if(c&&c.length>0)S.candles[a.sym]=[...c.slice(-119),tickC(c.at(-1),a.vol)];});}const ap=document.querySelector('.pg.on')?.id;if(ap==='pg-dash')renderDash();if(ap==='pg-chart')renderChart();checkPos();updateHdr();},1500);
+setInterval(()=>{if(!S.isLive){ASSETS.forEach(a=>{const c=S.candles[a.sym];if(c&&c.length>0)S.candles[a.sym]=[...c.slice(-500),tickC(c.at(-1),a.vol)];});}const ap=document.querySelector('.pg.on')?.id;if(ap==='pg-dash')renderDash();if(ap==='pg-chart')renderChart();checkPos();updateHdr();},1500);
 
 // Every 60s in LIVE mode: close current candle and open new one
 setInterval(()=>{
@@ -1618,7 +1618,7 @@ setInterval(()=>{
     const last=c.at(-1);
     // Open new candle with current close as open
     const newCandle={o:last.c,c:last.c,h:last.c,l:last.c,v:0,ts:Date.now()};
-    S.candles[a.sym]=[...c.slice(-499),newCandle];
+    S.candles[a.sym]=[...c.slice(-500),newCandle];
   });
 },60000);
 fetchPrices();
