@@ -1173,8 +1173,11 @@ function startLive(){
         const isStk=asset.cat==='stock'||asset.cat==='index';
         const v1sym=asset.sym+(isStk?'_SUSDT':'_UMCBL');
         const url=BASE_BG+'/api/mix/v1/market/candles?symbol='+v1sym+'&granularity=60&limit=300';
+        addLog('⏳ '+asset.short+' — a buscar candles...','sys');
         const r=await fetch(url);
+        if(!r.ok){addLog('❌ '+asset.short+' HTTP '+r.status,'info');continue;}
         const d=await r.json();
+        addLog('📦 '+asset.short+' resposta: '+(Array.isArray(d)?d.length+' items':JSON.stringify(d).slice(0,50)),'sys');
         if(Array.isArray(d)&&d.length>10){
           S.candles[asset.sym]=d.map(c=>({
             o:parseFloat(c[1]),h:parseFloat(c[2]),
