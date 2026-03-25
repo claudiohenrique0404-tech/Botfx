@@ -458,15 +458,25 @@ async function fetchPrices() {
         if (!rp || rp <= 0) return;
         const c = S.candles[asset.sym];
         if (!c || c.length === 0) {
-          // No candles yet - create first candle from real price
           const seed = {o:rp, c:rp, h:rp*1.001, l:rp*0.999, v:100};
           S.candles[asset.sym] = [seed];
           updated++;
           return;
         }
         const last = {...c.at(-1)};
-        const newCandle = {...last, c:rp, h:Math.max(last.h||rp, rp), l:Math.min(last.l||rp, rp)};
-        S.candles[asset.sym] = [...c.slice(-499), newCandle];
+        const now = Date.now();
+        const lastTs = last.ts || 0;
+        // Create new 1min candle if last candle is >60s old
+        if(now - lastTs > 60000) {
+          const newCandle = {o:rp, c:rp, h:rp, l:rp, v:0, ts:now};
+          S.candles[asset.sym] = [...c.slice(-499), newCandle];
+        } else {
+          // Update current candle
+          last.c = rp;
+          last.h = Math.max(last.h||rp, rp);
+          last.l = Math.min(last.l||rp, rp);
+          S.candles[asset.sym] = [...c.slice(-499), last];
+        }
         updated++;
       });
       if(updated===0) addLog('⚠️ Nenhum preço recebido da Bitget','info');
@@ -1197,7 +1207,7 @@ function startLive(){
             const r=await fetch(url);
             const d=await r.json();
             if(!Array.isArray(d)||d.length===0)return[];
-            return d.map(c=>({o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4]),v:parseFloat(c[5])})).reverse();
+            return d.map((c,i)=>({o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4]),v:parseFloat(c[5]),ts:parseFloat(c[0])})).reverse();
           }catch(e){return[];}
         };
 
