@@ -5,8 +5,8 @@ const { createHmac } = require('crypto');
 const CONFIG = {
   leverage:     2,
   riskPct:      0.05,
-  minScore:     7,
-  minConf:      0.55,
+  minScore:     6,       // ✅ FIX 3: era 7 — ligeiramente mais permissivo
+  minConf:      0.38,    // ✅ FIX 3: era 0.55 — conf=0.38 exige absScore≥11 (ok para trending)
   maxPositions: 3,
   takeProfitR:  3,
   stopLossAtr:  1.5,
@@ -52,8 +52,13 @@ const SYMBOLS = [
 ];
 
 // ═══ HELPERS ═══
-// Determina productType pelo cat do ativo
+// ✅ FIX 1: getPT devolve SEMPRE maiúsculas — obrigatório para endpoints de trading
 function getPT(cat) {
+  return cat === 'crypto' ? 'USDT-FUTURES' : 'SUSDT-FUTURES';
+}
+
+// getPT lowercase para endpoints de mercado (candles, tickers)
+function getPTmarket(cat) {
   return cat === 'crypto' ? 'usdt-futures' : 'susdt-futures';
 }
 
@@ -108,7 +113,7 @@ async function bg(method, path, body, K, S, P) {
 
 // ═══ CANDLES ═══
 async function fetchCandles(sym, cat, granularity = '1m', limit = 200) {
-  const pt  = getPT(cat);
+  const pt  = getPTmarket(cat);  // ✅ usa lowercase apenas para market data
   const url = `${BASE}/api/v2/mix/market/candles?symbol=${sym}&productType=${pt}&granularity=${granularity}&limit=${limit}`;
   const r   = await fetch(url);
   const d   = await r.json();
@@ -344,8 +349,6 @@ module.exports = async (req, res) => {
       .filter(p => parseFloat(p.total) > 0);
 
     addLog(`📊 Posições: ${openPositions.length}/${CONFIG.maxPositions}`);
-    if (openPositions.length >= CONFIG.maxPositions)
-      return res.json({ ok: true, reason: 'max posicoes', positions: openPositions.length });
 
     // ── Context global ────────────────────────────────────
     const [fearGreed, btcCandles] = await Promise.all([
@@ -357,14 +360,15 @@ module.exports = async (req, res) => {
       : 0;
     addLog(`📈 BTC trend: ${btcTrend.toFixed(2)}% | F&G: ${fearGreed}`);
 
-    // ── Gerir posições existentes ─────────────────────────
+    // ✅ FIX 2: Gestão de posições existentes SEMPRE corre
+    //    (antes retornava cedo se >= maxPositions, saltando trailing stop e fechos)
     let closed = 0;
     for (const pos of openPositions) {
       try {
         const sym    = pos.symbol;
         const side   = pos.holdSide;
         const asset  = SYMBOLS.find(a => a.sym === sym) || { sym, cat: 'crypto' };
-        const pt     = getPT(asset.cat);
+        const pt     = getPT(asset.cat);   // ✅ MAIÚSCULAS para trading
         const c1m    = await fetchCandles(sym, asset.cat, '1m', 100);
         if (!c1m || c1m.length < 30) continue;
 
@@ -377,20 +381,17 @@ module.exports = async (req, res) => {
         const isLong    = side === 'long';
 
         // ── Trailing Stop stateless ──────────────────────────
-        // R = distância entry→SL original (1.5x ATR)
         const R      = atrV * CONFIG.stopLossAtr;
         const profit = isLong ? price - entry : entry - price;
         const profitR = R > 0 ? profit / R : 0;
 
         let newSL = null, trailReason = '';
         if (profitR >= 2) {
-          // 2R de lucro → garante 1R
           newSL = isLong
             ? parseFloat((entry + R).toFixed(dp))
             : parseFloat((entry - R).toFixed(dp));
           trailReason = '2R→SL@1R';
         } else if (profitR >= 1) {
-          // 1R de lucro → breakeven + buffer mínimo
           const buf = price * 0.001;
           newSL = isLong
             ? parseFloat((entry + buf).toFixed(dp))
@@ -408,6 +409,7 @@ module.exports = async (req, res) => {
               ? list.find(o => o.planType === 'loss_plan' || o.triggerType)
               : null;
             const currentSL = slOrder ? parseFloat(slOrder.triggerPrice || 0) : 0;
+
             const improved  = isLong
               ? (currentSL === 0 || newSL > currentSL)
               : (currentSL === 0 || newSL < currentSL);
@@ -449,7 +451,7 @@ module.exports = async (req, res) => {
           try {
             await bg('POST', '/api/v2/mix/order/close-positions', {
               symbol:      sym,
-              productType: getPT(asset.cat).toUpperCase(),
+              productType: pt,   // ✅ já em MAIÚSCULAS via getPT()
               holdSide:    side,
             }, KEY, SEC, PASS);
             addLog(`✅ ${sym} fechado — PnL: $${unrealPnl.toFixed(2)}`);
@@ -464,6 +466,15 @@ module.exports = async (req, res) => {
       } catch (e) {
         addLog(`❌ Erro gerir ${pos.symbol}: ${e.message}`);
       }
+    }
+
+    // ✅ FIX 2: Só aqui verificamos se chegámos ao máximo de posições
+    if (openPositions.length >= CONFIG.maxPositions) {
+      addLog(`⏸ Máx posições (${openPositions.length}/${CONFIG.maxPositions}) — sem novos trades`);
+      addLog(`✅ Cron completo — 0 abertos, ${closed} fechados`);
+      lastLog = log;
+      lastRun = new Date().toISOString();
+      return res.json({ ok: true, reason: 'max posicoes', positions: openPositions.length, closed });
     }
 
     // ── Procurar novos sinais ─────────────────────────────
@@ -509,8 +520,7 @@ module.exports = async (req, res) => {
           ? (sig1m.conf + sig5m.conf) / 2
           : sig1m.conf;
 
-        const pt  = getPT(asset.cat);
-        const dp  = sig1m.dp;
+        const pt = getPT(asset.cat);   // ✅ MAIÚSCULAS para trading
 
         // Quantidade
         const riskAmt = capital * CONFIG.riskPct * CONFIG.leverage;
@@ -547,7 +557,7 @@ module.exports = async (req, res) => {
         // Abrir ordem market
         const order = await bg('POST', '/api/v2/mix/order/place-order', {
           symbol:      asset.sym,
-          productType: pt,
+          productType: pt,        // ✅ MAIÚSCULAS
           marginCoin:  'USDT',
           marginMode:  'isolated',
           side:        sig1m.action === 'LONG' ? 'buy' : 'sell',
@@ -568,7 +578,7 @@ module.exports = async (req, res) => {
           try {
             await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
               symbol:       asset.sym,
-              productType:  pt,
+              productType:  pt,         // ✅ MAIÚSCULAS
               marginCoin:   'USDT',
               planType:     'loss_plan',
               holdSide:     sig1m.action === 'LONG' ? 'long' : 'short',
@@ -584,7 +594,7 @@ module.exports = async (req, res) => {
           try {
             await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
               symbol:       asset.sym,
-              productType:  pt,
+              productType:  pt,         // ✅ MAIÚSCULAS
               marginCoin:   'USDT',
               planType:     'profit_plan',
               holdSide:     sig1m.action === 'LONG' ? 'long' : 'short',
