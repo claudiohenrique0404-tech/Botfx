@@ -490,13 +490,20 @@ async function fetchPrices() {
           updated++;
           return;
         }
-        // fetchPrices NUNCA cria candles novos — só atualiza o último
-        // Candles novos só são criados pelo setInterval de 60s
         const arr = c.slice();
         const last = arr[arr.length-1];
-        // Ignorar preços absurdos (> 15% de diferença)
-        if (last.c > 0 && Math.abs(rp - last.c) / last.c > 0.15) return;
-        arr[arr.length-1] = {...last, c:rp, h:Math.max(last.h,rp), l:Math.min(last.l,rp)};
+        // Ignorar preços absurdos (> 5% de diferença num tick)
+        if (last.c > 0 && Math.abs(rp - last.c) / last.c > 0.05) return;
+        const now = Date.now();
+        const curMin = Math.floor(now/60000)*60000;
+        const lastMin = last.ts ? Math.floor(last.ts/60000)*60000 : curMin;
+        if(curMin > lastMin){
+          // Novo minuto — criar candle novo com open = close anterior
+          arr.push({o:last.c, c:rp, h:Math.max(last.c,rp), l:Math.min(last.c,rp), v:0, ts:curMin});
+        } else {
+          // Mesmo minuto — atualizar último candle
+          arr[arr.length-1] = {...last, c:rp, h:Math.max(last.h,rp), l:Math.min(last.l,rp)};
+        }
         S.candles[asset.sym] = arr;
         updated++;
       });
@@ -1173,7 +1180,8 @@ function startLive(){
   const cap=parseFloat(document.getElementById('inp-cap').value)||100;
   if(!url||!url.startsWith('http')){notif('⚠️ Insere o URL do Vercel','#ff2255');return;}
   S.apiUrl=url;S.isLive=true;S.capital=cap;S.startCapital=cap;S.equityCurve=[cap];
-  // Limpar candles simulados imediatamente — evita mistura com candles reais
+  // Bloquear fetchPrices ANTES de limpar — evita candles fake durante loading
+  S.loadingCandles=true;
   ASSETS.forEach(a=>{ S.candles[a.sym]=[]; });
   localStorage.setItem('botfx_url',url);localStorage.setItem('botfx_cap',cap);
   document.getElementById('mbadge').className='mode-live';document.getElementById('mbadge').textContent='LIVE';
@@ -1204,13 +1212,9 @@ function startLive(){
       try{
         const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
-          // bitget.js já filtra por startTime=meia-noite UTC
-          // Apenas forçar ts do último candle para o minuto atual
-          const _arr=d.slice();
-          _arr[_arr.length-1]={..._arr[_arr.length-1], ts:Math.floor(Date.now()/60000)*60000};
-          S.candles[asset.sym]=_arr;
+          S.candles[asset.sym]=d;
           loaded++;
-          addLog('✅ '+asset.short+' — '+_arr.length+' candles','sys');
+          addLog('✅ '+asset.short+' — '+d.length+' candles','sys');
         } else {
           addLog('⚠️ '+asset.short+' — '+JSON.stringify(d).slice(0,40),'info');
         }
@@ -1656,17 +1660,23 @@ function closeAll(){
 // Loops
 setInterval(()=>{if(!S.isLive){ASSETS.forEach(a=>{const c=S.candles[a.sym];if(c&&c.length>0)S.candles[a.sym]=[...c.slice(-500),tickC(c.at(-1),a.vol)];});}const ap=document.querySelector('.pg.on')?.id;if(ap==='pg-dash')renderDash();if(ap==='pg-chart')renderChart();checkPos();updateHdr();},1500);
 
-// Every 60s in LIVE mode: close current candle and open new one
-setInterval(()=>{
-  if(!S.isLive)return;
-  ASSETS.forEach(a=>{
-    const c=S.candles[a.sym];
-    if(!c||c.length===0)return;
-    const last=c.at(-1);
-    // Open new candle with current close as open
-    const newCandle={o:last.c,c:last.c,h:last.c,l:last.c,v:0,ts:Date.now()};
-    S.candles[a.sym]=[...c.slice(-500),newCandle];
-  });
+// Every 60s em LIVE: recarregar candles frescos da Bitget para todos os ativos ativos
+// Substitui o interval de criação manual — evita spikes de preço
+setInterval(async()=>{
+  if(!S.isLive||S.loadingCandles||!S.apiUrl)return;
+  const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
+  for(const asset of enabled.slice(0,5)){// máx 5 por vez para não sobrecarregar
+    try{
+      const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:10});
+      if(!Array.isArray(d)||d.length<2)continue;
+      const c=S.candles[asset.sym];
+      if(!c||c.length<10)continue;
+      // Substituir os últimos 10 candles pelos frescos da Bitget
+      const merged=[...c.slice(0,-10),...d];
+      S.candles[asset.sym]=merged;
+    }catch{}
+    await new Promise(r=>setTimeout(r,100));
+  }
 },60000);
 fetchPrices();
 setInterval(async()=>{
