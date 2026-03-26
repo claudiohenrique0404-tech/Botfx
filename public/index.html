@@ -326,11 +326,10 @@ const ASSETS = [
   {sym:"LINKUSDT",  short:"LINK",  base:14.5,  vol:0.038, cat:"crypto",    label:"Chainlink",        p:2, pt:"USDT-FUTURES"},
   {sym:"ADAUSDT",   short:"ADA",   base:0.45,  vol:0.038, cat:"crypto",    label:"Cardano",          p:2, pt:"USDT-FUTURES"},
   {sym:"DOTUSDT",   short:"DOT",   base:7.2,   vol:0.040, cat:"crypto",    label:"Polkadot",         p:2, pt:"USDT-FUTURES"},
-  {sym:"SHIBUSDT",  short:"SHIB",  base:0.000025,vol:0.060,cat:"crypto",   label:"Shiba Inu",        p:1, pt:"USDT-FUTURES"},
+  {sym:"SHIBUSDT",  short:"SHIB",  base:0.000012,vol:0.060,cat:"crypto",   label:"Shiba Inu",        p:8, pt:"USDT-FUTURES"},
   {sym:"PEPEUSDT",  short:"PEPE",  base:0.000015,vol:0.070,cat:"crypto",   label:"Pepe",             p:1, pt:"USDT-FUTURES"},
   // ── INDICES (USDT-FUTURES) ── confirmados Bitget
   {sym:"QQQUSDT",   short:"QQQ",   base:480,   vol:0.007, cat:"index",     label:"Nasdaq ETF",       p:2, pt:"USDT-FUTURES"},
-  {sym:"US500USDT", short:"SP500", base:5420,  vol:0.005, cat:"index",     label:"S&P 500",          p:3, pt:"USDT-FUTURES"},
   // ── STOCKS (SUSDT-FUTURES) ── confirmados Bitget
   {sym:"TSLAUSDT",  short:"TSLA",  base:175,   vol:0.030, cat:"stock",     label:"Tesla",            p:1, pt:"SUSDT-FUTURES"},
   {sym:"NVDAUSDT",  short:"NVDA",  base:875,   vol:0.025, cat:"stock",     label:"NVIDIA",           p:1, pt:"SUSDT-FUTURES"},
@@ -348,8 +347,7 @@ const ASSETS = [
   {sym:"MSFTUSDT",  short:"MSFT",  base:415,   vol:0.014, cat:"stock",     label:"Microsoft",        p:2, pt:"SUSDT-FUTURES"},
   {sym:"NFLXUSDT",  short:"NFLX",  base:625,   vol:0.022, cat:"stock",     label:"Netflix",          p:2, pt:"SUSDT-FUTURES"},
   {sym:"COINUSDT",  short:"COIN",  base:220,   vol:0.035, cat:"stock",     label:"Coinbase",         p:1, pt:"SUSDT-FUTURES"},
-  {sym:"PLTYUSDT",  short:"PLTR",  base:85,    vol:0.035, cat:"stock",     label:"Palantir",         p:1, pt:"SUSDT-FUTURES"},
-  {sym:"AMDUSDT",   short:"AMD",   base:165,   vol:0.028, cat:"stock",     label:"AMD",              p:1, pt:"SUSDT-FUTURES"},
+  {sym:"PLTRUSDT",  short:"PLTR",  base:85,    vol:0.035, cat:"stock",     label:"Palantir",         p:1, pt:"SUSDT-FUTURES"},
   {sym:"INTCUSDT",  short:"INTC",  base:42,    vol:0.025, cat:"stock",     label:"Intel",            p:2, pt:"SUSDT-FUTURES"},
   {sym:"LLYUSDT",   short:"LLY",   base:780,   vol:0.018, cat:"stock",     label:"Eli Lilly",        p:2, pt:"SUSDT-FUTURES"},
   // ── COMMODITIES (USDT-FUTURES) ── confirmados Bitget
@@ -660,7 +658,6 @@ const REDDIT_SUBS = {
   'TSLAUSDT': ['teslainvestorsclub','wallstreetbets','stocks'],
   'MSTRUSDT': ['Bitcoin','wallstreetbets'],
   'COINUSDT': ['CoinBase','CryptoCurrency'],
-  'AMDUSDT':  ['AMD_Stock','stocks'],
   'METAUSDT': ['stocks','wallstreetbets'],
 };
 
@@ -1252,7 +1249,7 @@ function loadSaved(){
 }
 
 // Render helpers
-function fp(p,a){if(!p&&p!==0)return'—';if(p>=10000)return p.toFixed(0);if(p>=100)return p.toFixed(2);if(p>=1)return p.toFixed(3);return p.toFixed(5);}
+function fp(p,a){if(!p&&p!==0)return'—';if(p>=10000)return p.toFixed(0);if(p>=100)return p.toFixed(2);if(p>=1)return p.toFixed(3);if(p>=0.01)return p.toFixed(5);if(p>=0.0001)return p.toFixed(7);return p.toFixed(10);}
 function fc(v){return v>=0?'#00ff88':'#ff2255';}
 function spark(c,w=140){const pts=c.slice(-20).map(x=>x.c);if(pts.length<2)return'';const h=20,min=Math.min(...pts),max=Math.max(...pts),range=max-min||1;const up=pts.at(-1)>=pts[0],col=up?'#00ff88':'#ff2255';const p=pts.map((x,i)=>`${(i/(pts.length-1))*w},${h-((x-min)/range)*(h-2)-1}`).join(' ');return`<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${p}" fill="none" stroke="${col}" stroke-width="1.5" opacity="0.75"/></svg>`;}
 
