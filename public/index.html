@@ -1174,7 +1174,8 @@ function startLive(){
   const cap=parseFloat(document.getElementById('inp-cap').value)||100;
   if(!url||!url.startsWith('http')){notif('⚠️ Insere o URL do Vercel','#ff2255');return;}
   S.apiUrl=url;S.isLive=true;S.capital=cap;S.startCapital=cap;S.equityCurve=[cap];
-  // Don't clear candles yet - keep simulated until real ones load
+  // Limpar candles simulados imediatamente — evita mistura com candles reais
+  ASSETS.forEach(a=>{ S.candles[a.sym]=[]; });
   localStorage.setItem('botfx_url',url);localStorage.setItem('botfx_cap',cap);
   document.getElementById('mbadge').className='mode-live';document.getElementById('mbadge').textContent='LIVE';
   document.getElementById('cfg-badge').className='mode-live';document.getElementById('cfg-badge').textContent='LIVE';
