@@ -385,6 +385,36 @@ async function api(body) {
   } catch(e) { addLog('⚠️ Erro API: '+e.message,'sys'); return null; }
 }
 
+async function syncPositions() {
+  if (!S.isLive) return;
+  try {
+    const data = await api({action:'positions'});
+    if (!data || !Array.isArray(data.data)) return;
+    const openPos = data.data.filter(p => parseFloat(p.total) > 0);
+    // Sync real positions into S.positions
+    openPos.forEach(p => {
+      const existing = S.positions.find(x => x.sym === p.symbol && x.dir === (p.holdSide==='long'?'LONG':'SHORT'));
+      if (!existing) {
+        S.positions.push({
+          sym: p.symbol,
+          dir: p.holdSide === 'long' ? 'LONG' : 'SHORT',
+          entry: parseFloat(p.openPriceAvg),
+          size: parseFloat(p.total),
+          lev: parseInt(p.leverage) || 2,
+          isReal: true,
+          id: p.symbol + '_' + p.holdSide,
+          riskEur: parseFloat(p.marginSize) || 0
+        });
+      }
+    });
+    // Remove closed positions
+    S.positions = S.positions.filter(p => {
+      if (!p.isReal) return true;
+      return openPos.some(x => x.symbol === p.sym && (x.holdSide==='long'?'LONG':'SHORT') === p.dir);
+    });
+  } catch(e) { console.log('syncPositions err:', e.message); }
+}
+
 async function syncBalance() {
   if (!S.isLive) return;
   // Fix startCapital per day - reset at midnight
@@ -463,15 +493,19 @@ async function fetchPrices() {
           updated++;
           return;
         }
-        // ONLY update the close price of the last candle - never create new ones here
-        // New candles are created by the 1-minute interval below
-        const arr = c.slice();
-        const last = {...arr[arr.length-1]};
-        last.c = rp;
-        last.h = Math.max(last.h||rp, rp);
-        last.l = Math.min(last.l||rp, rp);
-        arr[arr.length-1] = last;
-        S.candles[asset.sym] = arr;
+        const now = Date.now();
+        const currentMin = Math.floor(now/60000)*60000;
+        const last = c.at(-1);
+        const lastMin = last.ts ? Math.floor(last.ts/60000)*60000 : currentMin;
+        if(currentMin > lastMin) {
+          // New minute - create new candle
+          S.candles[asset.sym] = [...c.slice(-999), {o:rp,c:rp,h:rp,l:rp,v:0,ts:currentMin}];
+        } else {
+          // Same minute - update last candle only h/l/c
+          const arr = c.slice();
+          arr[arr.length-1] = {...last, c:rp, h:Math.max(last.h,rp), l:Math.min(last.l,rp)};
+          S.candles[asset.sym] = arr;
+        }
         updated++;
       });
       if(updated===0) addLog('⚠️ Nenhum preço recebido da Bitget','info');
@@ -1937,8 +1971,8 @@ async function runScan(force=false){
 }
 
 setInterval(fetchSentiment,300000);
-setInterval(()=>{ if(S.isLive)syncPositions(); },10000);
 setInterval(()=>{ if(S.isLive)syncBalance(); },3000);
+setInterval(()=>{ if(S.isLive)syncPositions(); },10000);
 setInterval(updateMarketHours,60000);
 setInterval(fetchNews,600000);
 setInterval(fetchSocialSentiment,600000); // refresh social every 10min
