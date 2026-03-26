@@ -1,60 +1,54 @@
-let lastTrades = [];
-
 module.exports = async (req, res) => {
   try {
-    const pricesRes = await fetch(`${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : ''}/api/bitget`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'allPrices' })
+
+    const base = process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : '';
+
+    // SETTINGS
+    const sRes = await fetch(base + '/api/bitget', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'getSettings'})
     });
 
-    const prices = await pricesRes.json();
+    const settings = await sRes.json();
 
-    if (!Array.isArray(prices)) {
-      throw new Error('Erro a obter preços');
-    }
+    // PREÇOS
+    const pRes = await fetch(base + '/api/bitget', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'allPrices'})
+    });
 
-    // 🔥 exemplo simples (BTC)
-    const btc = prices.find(p => p.symbol === 'BTCUSDT');
+    const prices = await pRes.json();
+    const btc = prices.find(x => x.symbol === 'BTCUSDT');
 
-    if (!btc || !btc.price) {
-      throw new Error('BTC price inválido');
-    }
+    if (!btc) throw new Error('No BTC');
 
-    // lógica simples só para teste estável
-    const shouldBuy = Math.random() > 0.7;
+    // TAMANHO baseado em risco
+    const balance = 100; // simplificado
+    const riskAmount = balance * (settings.risk / 100);
 
-    if (shouldBuy) {
-      const orderRes = await fetch(`${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : ''}/api/bitget`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'order',
-          symbol: 'BTCUSDT',
-          side: 'BUY',
-          quantity: 0.001
+    const qty = (riskAmount / btc.price).toFixed(4);
+
+    // lógica simples (placeholder)
+    if (Math.random() > 0.7) {
+
+      await fetch(base + '/api/bitget', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'order',
+          symbol:'BTCUSDT',
+          side:'BUY',
+          quantity:qty
         })
       });
 
-      const order = await orderRes.json();
-
-      lastTrades.push({
-        symbol: 'BTCUSDT',
-        entry: btc.price,
-        time: new Date().toISOString()
-      });
-
-      console.log('✅ TRADE EXECUTADO', order);
     }
 
-    return res.json({
-      ok: true,
-      price: btc.price,
-      trades: lastTrades.slice(-10)
-    });
+    return res.json({ ok:true, settings });
 
   } catch (e) {
-    console.error('❌ CRON ERROR:', e.message);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error:e.message });
   }
 };
