@@ -1197,31 +1197,29 @@ function startLive(){
     S.loadingCandles=true;
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
     // Candles desde meia-noite
-    // Candles desde meia-noite UTC até agora + 5 de margem
-    // Garante que o último candle da Bitget é o minuto atual
-    const _now=new Date();
-    const _midnight=Date.UTC(_now.getUTCFullYear(),_now.getUTCMonth(),_now.getUTCDate(),0,0,0);
-    const _minsSinceMidnight=Math.ceil((_now.getTime()-_midnight)/60000);
-    const candleLimit=Math.min(_minsSinceMidnight+5, 1000);
-    addLog('📊 Pedindo '+candleLimit+' candles ('+Math.round(_minsSinceMidnight/60)+'h desde meia-noite UTC)','sys');
+    // Pedir sempre 1000 candles (máximo Bitget) e filtrar para hoje UTC
+    const candleLimit=1000;
     let loaded=0;
     for(const asset of enabled){
       try{
         const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
-          // Filtrar só candles de hoje em UTC
-          // Evita incluir candles de ontem que causam spike
+          const _curMin=Math.floor(Date.now()/60000)*60000;
           const _todayUTC=new Date();
           const _midnightUTC=Date.UTC(_todayUTC.getUTCFullYear(),_todayUTC.getUTCMonth(),_todayUTC.getUTCDate(),0,0,0);
-          const _curMin=Math.floor(Date.now()/60000)*60000;
+          // Debug: ver o que a Bitget devolveu
+          const _ft=d[0]?.ts, _lt=d[d.length-1]?.ts;
+          const _fh=_ft?new Date(_ft).getUTCHours().toString().padStart(2,'0')+':'+new Date(_ft).getUTCMinutes().toString().padStart(2,'0'):'?';
+          const _lh=_lt?new Date(_lt).getUTCHours().toString().padStart(2,'0')+':'+new Date(_lt).getUTCMinutes().toString().padStart(2,'0'):'?';
+          addLog('🔍 '+asset.short+': '+d.length+' raw | '+_fh+'→'+_lh+' UTC | midnight='+new Date(_midnightUTC).toISOString().slice(11,16),'sys');
+          // Filtrar candles de hoje UTC
           let _arr=d.filter(c=>c.ts>=_midnightUTC);
-          if(_arr.length<10) _arr=d.slice(-100); // fallback se filtro remover demasiado
+          if(_arr.length<10){addLog('⚠️ filtro removeu demasiado, usando tudo','sys');_arr=d.slice();}
           // Forçar ts do último candle para o minuto atual
-          _arr=_arr.slice();
           _arr[_arr.length-1]={..._arr[_arr.length-1], ts:_curMin};
           S.candles[asset.sym]=_arr;
           loaded++;
-          addLog('✅ '+asset.short+' — '+_arr.length+' candles hoje','sys');
+          addLog('✅ '+asset.short+' — '+_arr.length+' candles','sys');
         } else {
           addLog('⚠️ '+asset.short+' — '+JSON.stringify(d).slice(0,40),'info');
         }
