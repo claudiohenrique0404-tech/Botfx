@@ -1249,7 +1249,7 @@ function loadSaved(){
 // Render helpers
 function fp(p,a){if(!p&&p!==0)return'—';if(p>=10000)return p.toFixed(0);if(p>=100)return p.toFixed(2);if(p>=1)return p.toFixed(3);if(p>=0.01)return p.toFixed(5);if(p>=0.0001)return p.toFixed(7);return p.toFixed(10);}
 function fc(v){return v>=0?'#00ff88':'#ff2255';}
-function spark(c,w=140){const pts=c.slice(-20).map(x=>x.c);if(pts.length<2)return'';const h=20,min=Math.min(...pts),max=Math.max(...pts),range=max-min||1;const up=pts.at(-1)>=pts[0],col=up?'#00ff88':'#ff2255';const p=pts.map((x,i)=>`${(i/(pts.length-1))*w},${h-((x-min)/range)*(h-2)-1}`).join(' ');return`<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${p}" fill="none" stroke="${col}" stroke-width="1.5" opacity="0.75"/></svg>`;}
+function spark(c){const pts=c.slice(-60).map(x=>x.c);if(pts.length<2)return'';const vw=400,h=28,min=Math.min(...pts),max=Math.max(...pts),range=max-min||pts[0]*0.001||1;const up=pts.at(-1)>=pts[0],col=up?'#00ff88':'#ff2255';const p=pts.map((x,i)=>`${(i/(pts.length-1))*vw},${h-((x-min)/range)*(h-4)-2}`).join(' ');return`<div style="width:100%;max-width:180px;overflow:hidden;margin-top:4px;"><svg style="display:block;width:100%;height:${h}px;" viewBox="0 0 ${vw} ${h}" preserveAspectRatio="none"><polyline points="${p}" fill="none" stroke="${col}" stroke-width="2.5" opacity="0.9"/></svg></div>`;}
 
 function renderDash(){
   let html='';
@@ -1280,21 +1280,20 @@ function renderDash(){
         const sc=mktClosed?'bw':!sg?'bw':sg.action==='LONG'?'bl':sg.action==='SHORT'?'bs':'bw';
         const ct=mktClosed?' FECHADO':sg&&sg.action!=='WAIT'?` ${(sg.conf*100).toFixed(0)}%`:'';
         const assetEnabled=S.enabledAssets.includes(a.sym);
-        html+=`<div class="arow${isSel?' sel':''}${haPos?' pos':''}" style="${!assetEnabled?'opacity:0.4':''}" onclick="selAsset('${a.sym}')">
-          <div style="flex:1;min-width:0;">
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        html+=`<div class="arow${isSel?' sel':''}${haPos?' pos':''}" style="flex-direction:column;align-items:stretch;${!assetEnabled?'opacity:0.4':''}" onclick="selAsset('${a.sym}')">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;min-width:0;">
               <span style="font-size:13px;font-weight:700;">${a.short}</span>
               <span style="font-size:8px;color:#3a4455;">${a.label}</span>
               <span class="badge ${sc}">${sg?sg.action:'...'}${ct}</span>
               ${haPos?`<span class="ltag">${haPos.lev}x${haPos.isReal?' 🔴':''}</span>`:''}
             </div>
-            ${spark(c,130)}
+            <div style="text-align:right;flex-shrink:0;">
+              <div style="font-size:13px;font-weight:600;">$${fp(price,a)}</div>
+              <div style="font-size:10px;color:${chg>=0?'#00ff88':'#ff2255'}">${chg>=0?'+':''}${chg.toFixed(2)}%</div>
+            </div>
           </div>
-          <div style="text-align:right;flex-shrink:0;margin-left:8px;">
-            <div style="font-size:13px;font-weight:600;">$${fp(price,a)}</div>
-            <div style="font-size:10px;color:${chg>=0?'#00ff88':'#ff2255'}">${chg>=0?'+':''}${chg.toFixed(2)}%</div>
-            ${sg&&sg.action!=='WAIT'?`<div style="font-size:8px;color:#3a4455;margin-top:2px;">SL $${fp(sg.sl,a)}</div>`:''}
-          </div>
+          ${spark(c)}
         </div>`;
       });
     }
@@ -1350,9 +1349,9 @@ function renderChart(){
     // Add hour label every ~60 candles or at start
     if(d.ts){
       const dt=new Date(d.ts);
-      const mins=dt.getUTCMinutes();
+      const mins=dt.getMinutes();
       if(mins===0||(i===0)||(i===Math.floor(data.length/2))||(i===data.length-1)){
-        const hh=dt.getUTCHours().toString().padStart(2,'0');
+        const hh=dt.getHours().toString().padStart(2,'0');
         const mm=mins.toString().padStart(2,'0');
         sv+=`<text x="${x}" y="${H-1}" fill="#3a4455" font-size="7" font-family="monospace" text-anchor="middle">${hh}:${mm}</text>`;
       }
@@ -1617,7 +1616,7 @@ function updToggleColors(){
     }
   });
 }
-function togAsset(sym){if(S.enabledAssets.includes(sym)){if(S.enabledAssets.length<=1)return;S.enabledAssets=S.enabledAssets.filter(s=>s!==sym);}else S.enabledAssets.push(sym);renderAssetToggles();updToggleColors();}
+function togAsset(sym){if(S.enabledAssets.includes(sym)){if(S.enabledAssets.length<=1)return;S.enabledAssets=S.enabledAssets.filter(s=>s!==sym);}else S.enabledAssets.push(sym);localStorage.setItem('botfx_assets',JSON.stringify(S.enabledAssets));renderAssetToggles();updToggleColors();renderDash();}
 function forceScan(){runScan(true);}
 async function forceMulti(){
   const lev=parseInt(document.getElementById('s-lev')?.value)||5;
@@ -1743,6 +1742,7 @@ function multiTFScore(candles, asset){
 
 async function watcherTick(){
   if(!S.botActive)return;
+  if(S.isLive)return; // servidor trata disso — evitar trades duplicados
 
   // Portfolio total risk limit (max 10% capital at risk simultaneously)
   const totalRiskOpen=S.positions.reduce((s,p)=>s+p.riskEur,0);
