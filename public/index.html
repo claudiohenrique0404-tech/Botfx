@@ -1222,7 +1222,12 @@ function startLive(){
       try{
         const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
-          S.candles[asset.sym]=d;
+          // Forçar ts do último candle para o minuto atual
+          // Evita gap entre último candle histórico e agora
+          const _arr=d.slice();
+          const _curMin=Math.floor(Date.now()/60000)*60000;
+          _arr[_arr.length-1]={..._arr[_arr.length-1], ts:_curMin};
+          S.candles[asset.sym]=_arr;
           loaded++;
           addLog('✅ '+asset.short+' — '+d.length+' candles','sys');
         } else {
