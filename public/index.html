@@ -1210,15 +1210,12 @@ function startLive(){
     S.loadingCandles=true;
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
     // Candles desde meia-noite
-    const nowD=new Date();
-    // Usar meia-noite UTC (não local) para não incluir candles de ontem
-    const midnightUTC=new Date(Date.UTC(nowD.getUTCFullYear(),nowD.getUTCMonth(),nowD.getUTCDate()));
-    const msSinceMidnight=nowD-midnightUTC;
-    const candleLimit=Math.min(Math.ceil(msSinceMidnight/60000)+10,1000);
+    // 300 candles fixos (5h) — garante que o último candle é o atual
+    // A Bitget inclui sempre o candle incompleto do minuto presente
+    const candleLimit=300;
     let loaded=0;
     for(const asset of enabled){
       try{
-        // Usa proxy Vercel com API v2
         const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
           S.candles[asset.sym]=d;
@@ -1230,31 +1227,6 @@ function startLive(){
         await new Promise(r=>setTimeout(r,150));
       }catch(e){addLog('❌ '+asset.short+': '+e.message,'info');}
     }
-    // Buscar preços atuais e atualizar o último candle de cada ativo
-    // Isto elimina o gap/spike entre histórico e preço real atual
-    try {
-      const cryptoEnabled = enabled.filter(a=>a.pt==='USDT-FUTURES').map(a=>a.sym);
-      const stockEnabled  = enabled.filter(a=>a.pt==='SUSDT-FUTURES').map(a=>a.sym);
-      const priceResults  = await Promise.all([
-        cryptoEnabled.length ? api({action:'allPrices', productType:'usdt-futures'}) : [],
-        stockEnabled.length  ? api({action:'allPrices', productType:'susdt-futures'}) : [],
-      ]);
-      const priceMap = {};
-      priceResults.flat().filter(Boolean).forEach(p => { if(p.symbol) priceMap[p.symbol] = parseFloat(p.price); });
-      enabled.forEach(asset => {
-        const rp = priceMap[asset.sym];
-        if (!rp || rp <= 0) return;
-        const c = S.candles[asset.sym];
-        if (!c || c.length === 0) return;
-        const last = c.at(-1);
-        // Só actualiza se o preço não for absurdo (< 10% de diferença)
-        if (last.c > 0 && Math.abs(rp - last.c) / last.c > 0.10) return;
-        const arr = c.slice();
-        arr[arr.length - 1] = { ...last, c: rp, h: Math.max(last.h, rp), l: Math.min(last.l, rp) };
-        S.candles[asset.sym] = arr;
-      });
-    } catch(e) { addLog('⚠️ Bridge preços: '+e.message,'info'); }
-
     S.loadingCandles=false;
     if(loaded>0){
       addLog('✅ '+loaded+'/'+enabled.length+' ativos com candles reais!','sys');
