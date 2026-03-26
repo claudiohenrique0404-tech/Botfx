@@ -1212,9 +1212,15 @@ function startLive(){
       try{
         const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
-          S.candles[asset.sym]=d;
+          // Filtrar só candles de hoje UTC
+          // ts da Bitget é em ms (ex: 1743033600000)
+          const _mn=Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth(),new Date().getUTCDate(),0,0,0);
+          const _today=d.filter(c=>c.ts>=_mn);
+          // Se filtro remover demasiado (ex: ativo sem volume hoje), usar últimos 200
+          const _final=_today.length>=60?_today:d.slice(-200);
+          S.candles[asset.sym]=_final;
           loaded++;
-          addLog('✅ '+asset.short+' — '+d.length+' candles','sys');
+          addLog('✅ '+asset.short+' — '+_final.length+'/'+d.length+' candles hoje','sys');
         } else {
           addLog('⚠️ '+asset.short+' — '+JSON.stringify(d).slice(0,40),'info');
         }
