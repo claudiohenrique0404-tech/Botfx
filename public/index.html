@@ -494,9 +494,20 @@ async function fetchPrices() {
         const currentMin = Math.floor(now/60000)*60000;
         const last = c.at(-1);
         const lastMin = last.ts ? Math.floor(last.ts/60000)*60000 : currentMin;
+        const gapMins = lastMin > 0 ? Math.round((currentMin - lastMin) / 60000) : 0;
+        // Salto de preço > 8% num tick = dado inválido, ignora
+        const priceDiff = last.c > 0 ? Math.abs(rp - last.c) / last.c : 0;
+        if (priceDiff > 0.08) return;
         if(currentMin > lastMin) {
-          // New minute - create new candle
-          S.candles[asset.sym] = [...c.slice(-999), {o:rp,c:rp,h:rp,l:rp,v:0,ts:currentMin}];
+          // Gap grande (ex: mercado fechado) — preenche com candles planos
+          const arr = c.slice(-999);
+          if(gapMins > 1 && gapMins < 600) {
+            for(let g = 1; g < Math.min(gapMins, 30); g++) {
+              arr.push({o:last.c, c:last.c, h:last.c, l:last.c, v:0, ts:lastMin + g*60000});
+            }
+          }
+          arr.push({o:last.c, c:rp, h:Math.max(last.c,rp), l:Math.min(last.c,rp), v:0, ts:currentMin});
+          S.candles[asset.sym] = arr;
         } else {
           // Same minute - update last candle only h/l/c
           const arr = c.slice();
