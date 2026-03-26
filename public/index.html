@@ -1210,9 +1210,13 @@ function startLive(){
     S.loadingCandles=true;
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
     // Candles desde meia-noite
-    // 300 candles fixos (5h) — garante que o último candle é o atual
-    // A Bitget inclui sempre o candle incompleto do minuto presente
-    const candleLimit=300;
+    // Candles desde meia-noite UTC até agora + 5 de margem
+    // Garante que o último candle da Bitget é o minuto atual
+    const _now=new Date();
+    const _midnight=Date.UTC(_now.getUTCFullYear(),_now.getUTCMonth(),_now.getUTCDate(),0,0,0);
+    const _minsSinceMidnight=Math.ceil((_now.getTime()-_midnight)/60000);
+    const candleLimit=Math.min(_minsSinceMidnight+5, 1000);
+    addLog('📊 Pedindo '+candleLimit+' candles ('+Math.round(_minsSinceMidnight/60)+'h desde meia-noite UTC)','sys');
     let loaded=0;
     for(const asset of enabled){
       try{
