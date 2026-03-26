@@ -306,7 +306,7 @@ const S = {
   positions:[], log:[], closed:[],
   stats:{wins:0,losses:0,totalPnl:0},
   dailyPnl:0, dailyReset: new Date().toDateString(),
-  botActive:false, aiThinking:false,
+  botActive:false, aiThinking:false, loadingCandles:false,
   selectedSym:'BTCUSDT',
   candles:{}, equityCurve:[100],
   nextScan:Date.now()+15000,
@@ -467,6 +467,7 @@ async function syncBalance() {
 }
 
 async function fetchPrices() {
+  if(S.loadingCandles) return;
   if (S.isLive && S.apiUrl) {
     // Fetch ALL prices in 2 calls (one per productType) — much faster than per-symbol
     try {
@@ -1195,6 +1196,7 @@ function startLive(){
     await syncPositions();
     addLog('📊 A carregar candles reais da Bitget...','sys');
     document.getElementById('bstatus').textContent='⏳ A carregar candles reais...';
+    S.loadingCandles=true;
     const enabled=ASSETS.filter(a=>S.enabledAssets.includes(a.sym));
     // Candles desde meia-noite
     const nowD=new Date();
@@ -1215,6 +1217,7 @@ function startLive(){
         await new Promise(r=>setTimeout(r,150));
       }catch(e){addLog('❌ '+asset.short+': '+e.message,'info');}
     }
+    S.loadingCandles=false;
     if(loaded>0){
       addLog('✅ '+loaded+'/'+enabled.length+' ativos com candles reais!','sys');
       notif('✅ Candles carregados!','#00ff88');
