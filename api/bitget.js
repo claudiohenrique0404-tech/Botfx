@@ -82,9 +82,14 @@ module.exports = async (req, res) => {
     } else if (action === 'candles') {
       const sym   = p.symbol || 'BTCUSDT';
       const pt    = isStock(sym) ? 'susdt-futures' : 'usdt-futures';
-      const gran  = p.granularity || '1m';
-      const limit = Math.min(parseInt(p.limit) || 300, 1000);
-      const url   = `${BASE}/api/v2/mix/market/candles?symbol=${sym}&productType=${pt}&granularity=${gran}&limit=${limit}`;
+      const gran      = p.granularity || '1m';
+      const limit     = Math.min(parseInt(p.limit) || 300, 1000);
+      // startTime = meia-noite UTC de hoje — garante só candles de hoje
+      const startTime = p.startTime || (() => {
+        const n = new Date();
+        return Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 0, 0, 0);
+      })();
+      const url = `${BASE}/api/v2/mix/market/candles?symbol=${sym}&productType=${pt}&granularity=${gran}&limit=${limit}&startTime=${startTime}`;
       const r     = await fetch(url);
       const d     = await r.json();
       if (d && d.code === '00000' && Array.isArray(d.data) && d.data.length > 0) {

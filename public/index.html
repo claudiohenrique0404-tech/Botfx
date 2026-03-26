@@ -1204,19 +1204,10 @@ function startLive(){
       try{
         const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
-          const _curMin=Math.floor(Date.now()/60000)*60000;
-          const _todayUTC=new Date();
-          const _midnightUTC=Date.UTC(_todayUTC.getUTCFullYear(),_todayUTC.getUTCMonth(),_todayUTC.getUTCDate(),0,0,0);
-          // Debug: ver o que a Bitget devolveu
-          const _ft=d[0]?.ts, _lt=d[d.length-1]?.ts;
-          const _fh=_ft?new Date(_ft).getUTCHours().toString().padStart(2,'0')+':'+new Date(_ft).getUTCMinutes().toString().padStart(2,'0'):'?';
-          const _lh=_lt?new Date(_lt).getUTCHours().toString().padStart(2,'0')+':'+new Date(_lt).getUTCMinutes().toString().padStart(2,'0'):'?';
-          addLog('🔍 '+asset.short+': '+d.length+' raw | '+_fh+'→'+_lh+' UTC | midnight='+new Date(_midnightUTC).toISOString().slice(11,16),'sys');
-          // Filtrar candles de hoje UTC
-          let _arr=d.filter(c=>c.ts>=_midnightUTC);
-          if(_arr.length<10){addLog('⚠️ filtro removeu demasiado, usando tudo','sys');_arr=d.slice();}
-          // Forçar ts do último candle para o minuto atual
-          _arr[_arr.length-1]={..._arr[_arr.length-1], ts:_curMin};
+          // bitget.js já filtra por startTime=meia-noite UTC
+          // Apenas forçar ts do último candle para o minuto atual
+          const _arr=d.slice();
+          _arr[_arr.length-1]={..._arr[_arr.length-1], ts:Math.floor(Date.now()/60000)*60000};
           S.candles[asset.sym]=_arr;
           loaded++;
           addLog('✅ '+asset.short+' — '+_arr.length+' candles','sys');
