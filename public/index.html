@@ -1222,14 +1222,19 @@ function startLive(){
       try{
         const d=await api({action:'candles',symbol:asset.sym,granularity:'1m',limit:candleLimit});
         if(Array.isArray(d)&&d.length>10){
-          // Forçar ts do último candle para o minuto atual
-          // Evita gap entre último candle histórico e agora
-          const _arr=d.slice();
+          // Filtrar só candles de hoje em UTC
+          // Evita incluir candles de ontem que causam spike
+          const _todayUTC=new Date();
+          const _midnightUTC=Date.UTC(_todayUTC.getUTCFullYear(),_todayUTC.getUTCMonth(),_todayUTC.getUTCDate(),0,0,0);
           const _curMin=Math.floor(Date.now()/60000)*60000;
+          let _arr=d.filter(c=>c.ts>=_midnightUTC);
+          if(_arr.length<10) _arr=d.slice(-100); // fallback se filtro remover demasiado
+          // Forçar ts do último candle para o minuto atual
+          _arr=_arr.slice();
           _arr[_arr.length-1]={..._arr[_arr.length-1], ts:_curMin};
           S.candles[asset.sym]=_arr;
           loaded++;
-          addLog('✅ '+asset.short+' — '+d.length+' candles','sys');
+          addLog('✅ '+asset.short+' — '+_arr.length+' candles hoje','sys');
         } else {
           addLog('⚠️ '+asset.short+' — '+JSON.stringify(d).slice(0,40),'info');
         }
