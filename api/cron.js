@@ -284,6 +284,19 @@ function computeSig(c, asset, btcTrend = 0, fearGreed = 50) {
   };
 }
 
+// ═══ NOTIFICAÇÕES ntfy.sh ═══
+const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
+async function notify(title, msg, priority = 'default') {
+  if (!NTFY_TOPIC) return;
+  try {
+    await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+      method: 'POST',
+      headers: { 'Title': title, 'Priority': priority, 'Tags': 'chart_with_upwards_trend' },
+      body: msg,
+    });
+  } catch {}
+}
+
 // ═══ ESTADO EM MEMÓRIA ═══
 let lastLog = [];
 let lastRun = null;
@@ -348,33 +361,100 @@ module.exports = async (req, res) => {
     let closed = 0;
     for (const pos of openPositions) {
       try {
-        const sym   = pos.symbol;
-        const side  = pos.holdSide; // 'long' | 'short'
-        const asset = SYMBOLS.find(a => a.sym === sym) || { sym, cat: 'crypto' };
-        const c1m   = await fetchCandles(sym, asset.cat, '1m', 100);
+        const sym    = pos.symbol;
+        const side   = pos.holdSide;
+        const asset  = SYMBOLS.find(a => a.sym === sym) || { sym, cat: 'crypto' };
+        const pt     = getPT(asset.cat);
+        const c1m    = await fetchCandles(sym, asset.cat, '1m', 100);
         if (!c1m || c1m.length < 30) continue;
 
-        const unrealPnl  = parseFloat(pos.unrealizedPL || 0);
-        const sig        = computeSig(c1m, asset, btcTrend, fearGreed);
+        const entry     = parseFloat(pos.openPriceAvg || 0);
+        const price     = c1m.at(-1).c;
+        const unrealPnl = parseFloat(pos.unrealizedPL || 0);
+        const qty       = parseFloat(pos.total || 0);
+        const atrV      = atr(c1m);
+        const dp        = getDP(price);
+        const isLong    = side === 'long';
+
+        // ── Trailing Stop stateless ──────────────────────────
+        // R = distância entry→SL original (1.5x ATR)
+        const R      = atrV * CONFIG.stopLossAtr;
+        const profit = isLong ? price - entry : entry - price;
+        const profitR = R > 0 ? profit / R : 0;
+
+        let newSL = null, trailReason = '';
+        if (profitR >= 2) {
+          // 2R de lucro → garante 1R
+          newSL = isLong
+            ? parseFloat((entry + R).toFixed(dp))
+            : parseFloat((entry - R).toFixed(dp));
+          trailReason = '2R→SL@1R';
+        } else if (profitR >= 1) {
+          // 1R de lucro → breakeven + buffer mínimo
+          const buf = price * 0.001;
+          newSL = isLong
+            ? parseFloat((entry + buf).toFixed(dp))
+            : parseFloat((entry - buf).toFixed(dp));
+          trailReason = '1R→BE';
+        }
+
+        if (newSL !== null) {
+          try {
+            const plans = await bg('GET',
+              `/api/v2/mix/order/orders-plan-pending?symbol=${sym}&productType=${pt}&planType=loss_plan`,
+              null, KEY, SEC, PASS);
+            const list = plans?.data?.entrustedList || plans?.data || [];
+            const slOrder = Array.isArray(list)
+              ? list.find(o => o.planType === 'loss_plan' || o.triggerType)
+              : null;
+            const currentSL = slOrder ? parseFloat(slOrder.triggerPrice || 0) : 0;
+            const improved  = isLong
+              ? (currentSL === 0 || newSL > currentSL)
+              : (currentSL === 0 || newSL < currentSL);
+
+            if (improved) {
+              if (slOrder?.orderId) {
+                await bg('POST', '/api/v2/mix/order/cancel-plan-order',
+                  { symbol: sym, productType: pt, orderId: slOrder.orderId },
+                  KEY, SEC, PASS).catch(() => {});
+                await new Promise(r => setTimeout(r, 200));
+              }
+              await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+                symbol: sym, productType: pt, marginCoin: 'USDT',
+                planType: 'loss_plan', holdSide: side,
+                triggerPrice: String(newSL), triggerType: 'mark_price',
+                executePrice: '0', size: String(qty),
+              }, KEY, SEC, PASS);
+              addLog(`🔒 TRAIL ${sym} ${trailReason} SL: ${currentSL || '?'} → ${newSL}`);
+            }
+          } catch (e) {
+            addLog(`⚠️ Trail ${sym}: ${e.message}`);
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+
+        // ── Fechar por sinal reverso ──────────────────────────
+        const sig = computeSig(c1m, asset, btcTrend, fearGreed);
         const sigReversed = sig.action !== 'SKIP' && (
           (side === 'long'  && sig.action === 'SHORT') ||
           (side === 'short' && sig.action === 'LONG')
         );
 
         let shouldClose = false, reason = '';
-        if (sigReversed && unrealPnl > 0)    { shouldClose = true; reason = 'SINAL REVERTEU com lucro'; }
+        if (sigReversed && unrealPnl > 0)      { shouldClose = true; reason = 'SINAL REVERTEU com lucro'; }
         else if (sigReversed && sig.conf > 0.7) { shouldClose = true; reason = 'SINAL FORTE CONTRÁRIO'; }
 
         if (shouldClose) {
           addLog(`🔴 A fechar ${sym} — ${reason}`);
           try {
-            // productType correto para crypto vs stock
             await bg('POST', '/api/v2/mix/order/close-positions', {
               symbol:      sym,
               productType: getPT(asset.cat).toUpperCase(),
               holdSide:    side,
             }, KEY, SEC, PASS);
             addLog(`✅ ${sym} fechado — PnL: $${unrealPnl.toFixed(2)}`);
+            const pnlIcon = unrealPnl >= 0 ? '✅' : '🔴';
+            notify(`${pnlIcon} BotFX — Trade Fechado`, `${sym} PnL: $${unrealPnl.toFixed(2)} | ${reason}`, unrealPnl >= 0 ? 'default' : 'high').catch(() => {});
             closed++;
           } catch (e) {
             addLog(`❌ Erro fechar ${sym}: ${e.message}`);
@@ -479,6 +559,7 @@ module.exports = async (req, res) => {
 
         if (order?.data?.orderId) {
           addLog(`✅ ABERTO ${asset.sym} #${order.data.orderId} ${CONFIG.leverage}x ${sig1m.action} qty:${qty}`);
+          notify("⚡ BotFX — Trade Aberto", sig1m.action+" "+asset.sym+" @ "+sig1m.entry+" | "+CONFIG.leverage+"x | SL:"+sig1m.sl+" TP:"+sig1m.tp, "high").catch(()=>{});
           opened++;
 
           await new Promise(r => setTimeout(r, 400));
