@@ -490,30 +490,14 @@ async function fetchPrices() {
           updated++;
           return;
         }
-        const now = Date.now();
-        const currentMin = Math.floor(now/60000)*60000;
-        const last = c.at(-1);
-        const lastMin = last.ts ? Math.floor(last.ts/60000)*60000 : currentMin;
-        const gapMins = lastMin > 0 ? Math.round((currentMin - lastMin) / 60000) : 0;
-        // Salto de preço > 8% num tick = dado inválido, ignora
-        const priceDiff = last.c > 0 ? Math.abs(rp - last.c) / last.c : 0;
-        if (priceDiff > 0.08) return;
-        if(currentMin > lastMin) {
-          // Gap grande (ex: mercado fechado) — preenche com candles planos
-          const arr = c.slice(-999);
-          if(gapMins > 1 && gapMins < 600) {
-            for(let g = 1; g < Math.min(gapMins, 30); g++) {
-              arr.push({o:last.c, c:last.c, h:last.c, l:last.c, v:0, ts:lastMin + g*60000});
-            }
-          }
-          arr.push({o:last.c, c:rp, h:Math.max(last.c,rp), l:Math.min(last.c,rp), v:0, ts:currentMin});
-          S.candles[asset.sym] = arr;
-        } else {
-          // Same minute - update last candle only h/l/c
-          const arr = c.slice();
-          arr[arr.length-1] = {...last, c:rp, h:Math.max(last.h,rp), l:Math.min(last.l,rp)};
-          S.candles[asset.sym] = arr;
-        }
+        // fetchPrices NUNCA cria candles novos — só atualiza o último
+        // Candles novos só são criados pelo setInterval de 60s
+        const arr = c.slice();
+        const last = arr[arr.length-1];
+        // Ignorar preços absurdos (> 15% de diferença)
+        if (last.c > 0 && Math.abs(rp - last.c) / last.c > 0.15) return;
+        arr[arr.length-1] = {...last, c:rp, h:Math.max(last.h,rp), l:Math.min(last.l,rp)};
+        S.candles[asset.sym] = arr;
         updated++;
       });
       if(updated===0) addLog('⚠️ Nenhum preço recebido da Bitget','info');
@@ -536,8 +520,11 @@ async function fetchPrices() {
           S.candles[asset.sym] = [{o:rp,c:rp,h:rp*1.001,l:rp*0.999,v:100}];
           return;
         }
-        const last = {...c.at(-1)};
-        S.candles[asset.sym] = [...c.slice(-500), {...last, c:rp, h:Math.max(last.h||rp,rp), l:Math.min(last.l||rp,rp)}];
+        const _last = {...c.at(-1)};
+        if (_last.c > 0 && Math.abs(rp - _last.c) / _last.c > 0.15) return;
+        const _arr2 = c.slice();
+        _arr2[_arr2.length-1] = {..._last, c:rp, h:Math.max(_last.h||rp,rp), l:Math.min(_last.l||rp,rp)};
+        S.candles[asset.sym] = _arr2;
       });
     }
   } else {
