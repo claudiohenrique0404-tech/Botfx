@@ -7,7 +7,7 @@ function saveTrade(t){
 
   dataset.push({
     features: t.features,
-    result: null // ainda não sabemos resultado
+    result: null
   });
 
   if(trades.length > 500) trades.shift();
@@ -15,7 +15,7 @@ function saveTrade(t){
 
 function updateTradeResult(symbol, pnl){
 
-  const item = dataset.find(d => !d.result);
+  const item = dataset.find(d => d.result === null);
 
   if(item){
     item.result = pnl > 0 ? 1 : 0;
