@@ -2,16 +2,24 @@ const { getTrades, getEquity } = require('./db');
 
 module.exports = async (req,res)=>{
 
-  const trades = await getTrades();
-  const equity = await getEquity();
+  try{
 
-  const pnl = equity.length
-    ? equity[0].value - equity.at(-1).value
-    : 0;
+    const trades = await getTrades();
+    const equity = await getEquity();
 
-  res.json({
-    trades,
-    equity,
-    pnl
-  });
+    let pnl = 0;
+
+    if(equity.length > 1){
+      pnl = equity[0].value - equity[equity.length-1].value;
+    }
+
+    res.json({
+      trades,
+      equity,
+      pnl
+    });
+
+  }catch(e){
+    res.json({ error: e.message });
+  }
 };
