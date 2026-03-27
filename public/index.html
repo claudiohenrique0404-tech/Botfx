@@ -2,104 +2,54 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Bot Hedge Fund</title>
+<title>Trading Desk</title>
 
 <style>
 body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
 .box{background:#1e293b;padding:15px;margin-bottom:15px;border-radius:10px}
-input{margin:5px}
 </style>
 </head>
 
 <body>
 
-<h2>🏦 Bot Hedge Fund</h2>
+<h2>🏦 Trading Desk</h2>
 
 <div class="box">
-<h3>💰 Balance</h3>
-<div id="balance"></div>
+<h3>📊 Performance</h3>
+<div id="perf"></div>
 </div>
 
 <div class="box">
-<h3>⚙️ Settings</h3>
-
-Risco % <input id="risk"><br>
-Leverage <input id="lev"><br>
-TP € <input id="tp"><br>
-SL € <input id="sl"><br>
-Max posições <input id="maxp"><br>
-
-Ativos:
-<input id="symbols"><br>
-
-<button onclick="save()">Guardar</button>
-</div>
-
-<div class="box">
-<h3>📊 Logs</h3>
-<div id="logs"></div>
+<h3>🤖 Bots</h3>
+<div id="bots"></div>
 </div>
 
 <script>
 
-async function loadSettings(){
- const r = await fetch('/api/bitget',{
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({action:'getSettings'})
- });
- const s = await r.json();
+async function load(){
 
- risk.value=s.risk;
- lev.value=s.lev;
- tp.value=s.tpDollar;
- sl.value=s.slDollar;
- maxp.value=s.maxPositions;
- symbols.value=s.symbols.join(',');
-}
-
-async function save(){
- await fetch('/api/bitget',{
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({
-    action:'setSettings',
-    risk:parseFloat(risk.value),
-    lev:parseFloat(lev.value),
-    tpDollar:parseFloat(tp.value),
-    slDollar:parseFloat(sl.value),
-    maxPositions:parseInt(maxp.value),
-    symbols:symbols.value.split(',')
-  })
- });
- alert('Guardado');
-}
-
-async function loadBalance(){
- const r = await fetch('/api/bitget',{
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({action:'balance'})
- });
- const d = await r.json();
- if(d[0]){
-  balance.innerText = 'USDT: ' + parseFloat(d[0].available).toFixed(2);
- }
-}
-
-async function loadLogs(){
  const r = await fetch('/api/cron');
  const d = await r.json();
- if(d.logs){
-  logs.innerHTML = d.logs.map(l=>`<div>${l}</div>`).join('');
+
+ if(d.metrics){
+  perf.innerHTML = `
+   Trades: ${d.metrics.trades}<br>
+   Winrate: ${d.metrics.winrate}%<br>
+   PnL: ${d.metrics.pnl}<br>
+   Equity: ${d.metrics.equity}<br>
+   Drawdown: ${d.metrics.drawdown}%
+  `;
  }
+
+ if(d.bots){
+  bots.innerHTML = Object.entries(d.bots)
+   .map(([k,v])=>`${k}: ${(v.capital*100).toFixed(1)}%`)
+   .join('<br>');
+ }
+
 }
 
-setInterval(loadLogs,5000);
-setInterval(loadBalance,10000);
-
-loadSettings();
-loadBalance();
+setInterval(load,5000);
 
 </script>
 
