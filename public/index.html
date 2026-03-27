@@ -2,135 +2,89 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Bot PRO</title>
+<title>Bot PRO Consistente</title>
 
 <style>
-body { background:#0f172a; color:#fff; font-family:Arial; padding:20px; }
-.box { background:#1e293b; padding:15px; margin-bottom:15px; border-radius:10px; }
-.green{color:#22c55e;} .red{color:#ef4444;}
-input{width:80px;margin:5px;}
+body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
+.box{background:#1e293b;padding:15px;margin-bottom:15px;border-radius:10px}
+input{margin:5px}
 </style>
 </head>
 
 <body>
 
-<h2>🚀 Bot Control</h2>
+<h2>🤖 Bot Consistente PRO</h2>
 
 <div class="box">
 <h3>⚙️ Settings</h3>
 
 Risco % <input id="risk"><br>
 Leverage <input id="lev"><br>
+TP € <input id="tp"><br>
+SL € <input id="sl"><br>
+Max posições <input id="maxp"><br>
+
+Ativos:
+<input id="symbols"><br>
 
 <button onclick="save()">Guardar</button>
 </div>
 
 <div class="box">
-<h3>📊 Métricas</h3>
-<div id="metrics"></div>
-</div>
-
-<div class="box">
-<h3>📈 Histórico</h3>
-<div id="trades"></div>
+<h3>📊 Logs</h3>
+<div id="logs"></div>
 </div>
 
 <script>
 
-const S = {
-  trades: []
-};
+async function load(){
+ const r = await fetch('/api/bitget',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({action:'getSettings'})
+ });
 
-// LOAD SETTINGS
-async function loadSettings() {
-  const r = await fetch('/api/bitget', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'getSettings'})
-  });
+ const s = await r.json();
 
-  const s = await r.json();
-
-  risk.value = s.risk;
-  lev.value = s.lev;
+ risk.value=s.risk;
+ lev.value=s.lev;
+ tp.value=s.tpDollar;
+ sl.value=s.slDollar;
+ maxp.value=s.maxPositions;
+ symbols.value=s.symbols.join(',');
 }
 
-// SAVE SETTINGS
-async function save() {
-  await fetch('/api/bitget', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      action:'setSettings',
-      risk:parseFloat(risk.value),
-      lev:parseFloat(lev.value)
-    })
-  });
+async function save(){
 
-  alert('Atualizado');
+ await fetch('/api/bitget',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({
+     action:'setSettings',
+     risk:parseFloat(risk.value),
+     lev:parseFloat(lev.value),
+     tpDollar:parseFloat(tp.value),
+     slDollar:parseFloat(sl.value),
+     maxPositions:parseInt(maxp.value),
+     symbols:symbols.value.split(',')
+   })
+ });
+
+ alert('Guardado');
 }
 
-// LOAD HISTORY REAL
-async function loadHistory() {
+async function logs(){
+ const r = await fetch('/api/cron');
+ const d = await r.json();
 
-  const r = await fetch('/api/bitget', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'history'})
-  });
-
-  const data = await r.json();
-
-  if (!Array.isArray(data)) return;
-
-  S.trades = data.map(t => ({
-    symbol: t.symbol,
-    pnl: parseFloat(t.totalProfits || 0)
-  }));
-
-  render();
+ if(d.logs){
+   document.getElementById('logs').innerHTML =
+     d.logs.map(l=>`<div>${l}</div>`).join('');
+ }
 }
 
-// MÉTRICAS
-function calcMetrics() {
-  const wins = S.trades.filter(t => t.pnl > 0).length;
-  const total = S.trades.length;
-  const pnl = S.trades.reduce((a,b)=>a+b.pnl,0);
-
-  return {
-    total,
-    winrate: total ? ((wins/total)*100).toFixed(1) : 0,
-    pnl
-  };
-}
-
-// RENDER
-function render() {
-
-  const m = calcMetrics();
-
-  document.getElementById('metrics').innerHTML = `
-    Total: ${m.total}<br>
-    Winrate: ${m.winrate}%<br>
-    PnL: <span class="${m.pnl>=0?'green':'red'}">${m.pnl.toFixed(2)}</span>
-  `;
-
-  document.getElementById('trades').innerHTML =
-    S.trades.slice(0,20).map(t => `
-      <div>
-        ${t.symbol} |
-        <span class="${t.pnl>=0?'green':'red'}">
-          ${t.pnl.toFixed(2)}
-        </span>
-      </div>
-    `).join('');
-}
-
-// INIT
-loadSettings();
-loadHistory();
-
-setInterval(loadHistory, 10000);
+setInterval(logs,5000);
+load();
 
 </script>
 
