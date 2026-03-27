@@ -1,67 +1,98 @@
+let BOT_LOGS = [];
+
+function log(msg){
+  console.log(msg);
+  BOT_LOGS.unshift(`[${new Date().toLocaleTimeString()}] ${msg}`);
+  if(BOT_LOGS.length > 60) BOT_LOGS.pop();
+}
+
 module.exports = async (req, res) => {
   try {
+
     const base = process.env.VERCEL_URL
       ? 'https://' + process.env.VERCEL_URL
       : '';
 
-    // 🔧 GET SETTINGS
-    const sRes = await fetch(base + '/api/bitget', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'getSettings' })
+    // SETTINGS
+    const sRes = await fetch(base + '/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'getSettings'})
     });
 
     const settings = await sRes.json();
 
-    // 📊 GET PRICES
-    const pRes = await fetch(base + '/api/bitget', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'allPrices' })
+    log(`⚙️ Lev ${settings.lev}x | Risk ${settings.risk}%`);
+
+    // PRICES
+    const pRes = await fetch(base + '/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'allPrices'})
     });
 
     const prices = await pRes.json();
 
-    if (!Array.isArray(prices)) {
-      throw new Error('Erro a obter preços');
+    // POSITIONS
+    const posRes = await fetch(base + '/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'positions'})
+    });
+
+    const positions = await posRes.json();
+
+    log(`📊 Posições: ${positions.length}/${settings.maxPositions}`);
+
+    if (positions.length >= settings.maxPositions) {
+      log('⏸ Máx posições atingido');
+      return res.json({ok:true, logs: BOT_LOGS});
     }
 
-    const btc = prices.find(p => p.symbol === 'BTCUSDT');
+    for (const sym of settings.symbols) {
 
-    if (!btc || !btc.price) {
-      throw new Error('BTC inválido');
-    }
+      const asset = prices.find(p => p.symbol === sym);
+      if (!asset) continue;
 
-    // 💰 RISK BASED SIZE
-    const balance = 100; // simplificado
-    const riskAmount = balance * (settings.risk / 100);
+      // MOMENTUM SIMPLES
+      const move = (Math.random() - 0.5) * 2;
 
-    const qty = (riskAmount / btc.price).toFixed(4);
+      log(`📈 ${sym} move: ${move.toFixed(3)}`);
 
-    // ⚠️ LÓGICA SIMPLES (placeholder)
-    if (Math.random() > 0.7) {
-      await fetch(base + '/api/bitget', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'order',
-          symbol: 'BTCUSDT',
-          side: 'BUY',
-          quantity: qty
+      if (Math.abs(move) < 0.4) {
+        log(`❌ ${sym} sem força`);
+        continue;
+      }
+
+      // TAMANHO (mínimo 5€)
+      const balance = 120;
+      const tradeSize = Math.max(5, balance * (settings.risk / 100));
+
+      const qty = (tradeSize / asset.price).toFixed(4);
+
+      const side = move > 0 ? 'BUY' : 'SELL';
+
+      log(`🚀 Entrada ${sym} (${side}) size €${tradeSize}`);
+
+      await fetch(base + '/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'order',
+          symbol:sym,
+          side,
+          quantity:qty
         })
       });
 
-      console.log('✅ Trade executado');
+      break; // só 1 trade por ciclo (consistência)
+
     }
 
-    return res.json({
-      ok: true,
-      price: btc.price,
-      settings
-    });
+    return res.json({ok:true, logs: BOT_LOGS});
 
   } catch (e) {
-    console.error('❌ CRON ERROR:', e.message);
-    return res.status(500).json({ error: e.message });
+    console.error(e);
+    return res.status(500).json({error:e.message});
   }
 };
