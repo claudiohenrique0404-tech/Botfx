@@ -22,9 +22,7 @@ function rsi(data, period=14){
   return 100 - (100/(1+rs));
 }
 
-// 🔥 TREND BOT (EMA CROSS)
 function trendBot(data){
-
   const ema9 = ema(data.slice(-20),9);
   const ema21 = ema(data.slice(-40),21);
 
@@ -34,9 +32,7 @@ function trendBot(data){
   return null;
 }
 
-// 🔥 RSI BOT
 function rsiBot(data){
-
   const val = rsi(data.slice(-20));
 
   if(val < 30) return { side:'BUY', confidence:0.7 };
@@ -45,9 +41,7 @@ function rsiBot(data){
   return null;
 }
 
-// 🔥 MOMENTUM
 function momentumBot(data){
-
   const change = (data.at(-1)-data.at(-5))/data.at(-5);
 
   if(change > 0.002) return { side:'BUY', confidence:0.5 };
