@@ -1,35 +1,52 @@
-let logs = [];
-let lossStreak = 0;
+const STRAT = require('./strategies');
+const { addTrade, getMetrics } = require('./state');
 
-function log(msg){
- logs.unshift(`[${new Date().toLocaleTimeString()}] ${msg}`);
- if(logs.length>80) logs.pop();
- console.log(msg);
+let botStats = {
+ trendBot: { score: 1, capital: 0.33 },
+ rsiBot: { score: 1, capital: 0.33 },
+ momentumBot: { score: 1, capital: 0.34 }
+};
+
+function normalize(){
+ const total = Object.values(botStats).reduce((a,b)=>a+b.score,0);
+ for(const b in botStats){
+  botStats[b].capital = botStats[b].score / total;
+ }
 }
 
-// EMA
-function calcEMA(data, period){
- let k = 2/(period+1);
- let ema = data[0];
+function atr(data){
+ let sum=0;
  for(let i=1;i<data.length;i++){
-   ema = data[i]*k + ema*(1-k);
+  sum += Math.abs(data[i]-data[i-1]);
  }
- return ema;
+ return sum/data.length;
 }
 
-// RSI
-function calcRSI(data, period=14){
- let gains=0, losses=0;
+async function executeOrder(base, symbol, side, qty, closes){
 
- for(let i=data.length-period;i<data.length;i++){
-   const diff = data[i]-data[i-1];
-   if(diff>0) gains+=diff;
-   else losses-=diff;
+ const move = Math.abs((closes.at(-1)-closes.at(-2))/closes.at(-2));
+
+ if(move > 0.005){
+  console.log('❌ Slippage alto');
+  return;
  }
 
- if(losses===0) return 100;
- let rs = gains/losses;
- return 100 - (100/(1+rs));
+ const part = (qty/2).toFixed(4);
+
+ for(let i=0;i<2;i++){
+  await fetch(base+'/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      action:'order',
+      symbol,
+      side,
+      quantity:part
+    })
+  });
+
+  await new Promise(r=>setTimeout(r,500));
+ }
 }
 
 module.exports = async (req,res)=>{
@@ -44,89 +61,61 @@ module.exports = async (req,res)=>{
     body:JSON.stringify({action:'getSettings'})
   })).json();
 
-  const positions = await (await fetch(base+'/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'positions'})
-  })).json();
-
-  log(`📊 posições: ${positions.length}/${settings.maxPositions}`);
-
-  if(positions.length>=settings.maxPositions){
-    log('⏸ limite atingido');
-    return res.json({logs});
-  }
-
-  if(lossStreak >= settings.maxLossStreak){
-    log('🛑 bloqueado por perdas');
-    return res.json({logs});
-  }
+  normalize();
 
   for(const sym of settings.symbols){
 
     const candles = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'candles', symbol:sym})
+      body:JSON.stringify({action:'candles',symbol:sym,tf:'1m'})
     })).json();
 
     if(!candles.length) continue;
 
-    const closes = candles.map(c=>parseFloat(c[4]));
+    const closes = candles.map(c=>+c[4]);
 
-    const ema20 = calcEMA(closes.slice(-20),20);
-    const ema50 = calcEMA(closes.slice(-50),50);
-    const rsi = calcRSI(closes);
+    const signals = {
+      trendBot: STRAT.trendBot(closes),
+      rsiBot: STRAT.rsiBot(closes),
+      momentumBot: STRAT.momentumBot(closes)
+    };
 
-    const trendUp = ema20 > ema50;
+    let votes = { BUY:0, SELL:0 };
 
-    log(`${sym} EMA20:${ema20.toFixed(2)} EMA50:${ema50.toFixed(2)} RSI:${rsi.toFixed(1)}`);
-
-    const last = closes[closes.length-1];
-
-    const size = Math.max(5, 120*(settings.risk/100));
-    const qty = (size/last).toFixed(4);
-
-    // LONG
-    if(trendUp && rsi < 35){
-      log(`🚀 LONG ${sym}`);
-
-      await fetch(base+'/api/bitget',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          action:'order',
-          symbol:sym,
-          side:'BUY',
-          quantity:qty
-        })
-      });
-
-      break;
+    for(const b in signals){
+      if(signals[b]){
+        votes[signals[b].side] += botStats[b].capital;
+      }
     }
 
-    // SHORT
-    if(!trendUp && rsi > 65){
-      log(`🔻 SHORT ${sym}`);
+    let side = null;
 
-      await fetch(base+'/api/bitget',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          action:'order',
-          symbol:sym,
-          side:'SELL',
-          quantity:qty
-        })
-      });
+    if(votes.BUY > votes.SELL && votes.BUY > 0.5) side='BUY';
+    if(votes.SELL > votes.BUY && votes.SELL > 0.5) side='SELL';
 
-      break;
-    }
+    if(!side) continue;
 
-    log(`❌ sem entrada ${sym}`);
+    const vol = atr(closes.slice(-20));
+    const baseRisk = 120*(settings.risk/100);
+
+    const size = Math.max(5, baseRisk/(vol || 1));
+    const qty = (size/closes.at(-1)).toFixed(4);
+
+    await executeOrder(base, sym, side, qty, closes);
+
+    // simulação pnl (até ligares ao real)
+    const pnl = (Math.random()-0.45)*2;
+
+    addTrade(pnl);
+
+    break;
   }
 
-  return res.json({logs});
+  return res.json({
+    metrics: getMetrics(),
+    bots: botStats
+  });
 
  }catch(e){
   return res.status(500).json({error:e.message});
