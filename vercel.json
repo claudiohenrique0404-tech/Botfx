@@ -9,11 +9,5 @@
     { "src": "/api/bitget", "dest": "/api/bitget.js" },
     { "src": "/api/cron", "dest": "/api/cron.js" },
     { "src": "/(.*)", "dest": "/public/index.html" }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron",
-      "schedule": "*/1 * * * *"
-    }
   ]
 }
