@@ -66,11 +66,14 @@ module.exports = async (req, res) => {
       return res.json(d.data || []);
     }
 
-    // ===== CANDLES =====
+    // ===== CANDLES (🔥 FIX REAL) =====
     if (action === 'candles') {
-      const url = `${BASE}/api/v2/mix/market/candles?symbol=${p.symbol}&granularity=${p.tf}&limit=100`;
+
+      const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=USDT-FUTURES&granularity=${p.tf}&limit=100`;
+
       const r = await fetch(url);
       const d = await r.json();
+
       return res.json(d.data || []);
     }
 
