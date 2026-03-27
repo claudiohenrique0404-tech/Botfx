@@ -1,52 +1,35 @@
 const STRAT = require('./strategies');
 
 let LOGS = [];
+let DAILY = {
+  pnl:0,
+  trades:0
+};
+
+let BOT_SCORE = {
+  trendBot:1,
+  rsiBot:1,
+  momentumBot:1
+};
 
 function log(msg){
-  const time = new Date().toLocaleTimeString('pt-PT', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-
+  const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
   const entry = `[${time}] ${msg}`;
-  console.log(entry);
 
+  console.log(entry);
   LOGS.unshift(entry);
   if(LOGS.length > 100) LOGS.pop();
 }
 
-function atr(data){
-  let sum=0;
-  for(let i=1;i<data.length;i++){
-    sum += Math.abs(data[i]-data[i-1]);
-  }
-  return sum/data.length;
-}
+function normalizeScores(){
+  const total = Object.values(BOT_SCORE).reduce((a,b)=>a+b,0);
+  let out = {};
 
-async function executeOrder(base, symbol, side, qty){
-
-  const r = await fetch(base+'/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      action:'order',
-      symbol,
-      side,
-      quantity:qty
-    })
-  });
-
-  const data = await r.json();
-
-  if(!data || data.code !== '00000'){
-    log(`❌ ERRO ORDEM ${symbol}: ${JSON.stringify(data)}`);
-    return false;
+  for(const k in BOT_SCORE){
+    out[k] = BOT_SCORE[k]/total;
   }
 
-  log(`✅ ORDEM EXECUTADA ${symbol}`);
-  return true;
+  return out;
 }
 
 module.exports = async (req,res)=>{
@@ -55,7 +38,6 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -64,122 +46,122 @@ module.exports = async (req,res)=>{
 
     if(!settings.active){
       log('⏸ Bot desligado');
-      return res.json({ logs: LOGS });
+      return res.json({ logs:LOGS });
     }
 
-    // ===== BALANCE =====
+    // ===== RISK CONTROL =====
+    if(DAILY.pnl <= -3){
+      log('🛑 STOP DIÁRIO ATINGIDO');
+      return res.json({ logs:LOGS });
+    }
+
+    if(DAILY.pnl >= 2){
+      log('🎯 META DIÁRIA ATINGIDA');
+      return res.json({ logs:LOGS });
+    }
+
+    if(DAILY.trades >= 10){
+      log('⛔ MAX TRADES DIA');
+      return res.json({ logs:LOGS });
+    }
+
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'balance'})
     })).json();
 
-    let balance = 0;
+    let balance = parseFloat(balanceData[0]?.available || 0);
 
-    if(balanceData.length){
-      const usdt = balanceData.find(b=>b.marginCoin === 'USDT');
-      balance = parseFloat(usdt.available || 0);
-    }
+    log(`💰 ${balance}`);
 
-    log(`💰 Balance: $${balance.toFixed(2)}`);
+    const weights = normalizeScores();
 
-    // ===== POSITIONS =====
-    const positions = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'positions'})
-    })).json();
-
-    let openPositions = 0;
-    let pnl = 0;
-
-    if(positions.length){
-      positions.forEach(p=>{
-        if(parseFloat(p.total) > 0){
-          openPositions++;
-          pnl += parseFloat(p.unrealizedPL || 0);
-        }
-      });
-    }
-
-    log(`📊 Posições abertas: ${openPositions}`);
-
-    // 🔥 LIMITADOR
-    if(openPositions >= 2){
-      log('⛔ Máx posições atingido');
-      return res.json({
-        metrics:{
-          trades: openPositions,
-          pnl: pnl.toFixed(2),
-          equity: (balance + pnl).toFixed(2)
-        },
-        logs: LOGS
-      });
-    }
-
-    // ===== LOOP =====
     for(const sym of settings.symbols){
-
-      log(`🔍 ${sym}`);
 
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'candles',
-          symbol: sym,
+          symbol:sym,
           tf:'1m'
         })
       })).json();
 
-      if(!candles.length){
-        log(`⚠️ sem dados`);
-        continue;
-      }
+      if(!candles.length) continue;
 
       const closes = candles.map(c=>+c[4]);
 
-      const signal = STRAT.trendBot(closes);
+      const signals = {
+        trendBot: STRAT.trendBot(closes),
+        rsiBot: STRAT.rsiBot(closes),
+        momentumBot: STRAT.momentumBot(closes)
+      };
 
-      if(!signal || signal.confidence < 0.55){
-        log(`❌ sem sinal`);
+      let vote = {BUY:0, SELL:0};
+
+      for(const b in signals){
+        if(signals[b]){
+          vote[signals[b].side] += weights[b];
+        }
+      }
+
+      log(`🗳️ ${sym} BUY:${vote.BUY.toFixed(2)} SELL:${vote.SELL.toFixed(2)}`);
+
+      let side=null;
+
+      if(vote.BUY > 0.55) side='BUY';
+      if(vote.SELL > 0.55) side='SELL';
+
+      if(!side) continue;
+
+      const risk = balance * 0.01;
+      const price = closes.at(-1);
+      const qty = (Math.max(5,risk)/price).toFixed(4);
+
+      const r = await fetch(base+'/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'order',
+          symbol:sym,
+          side,
+          quantity:qty
+        })
+      });
+
+      const data = await r.json();
+
+      if(data.code !== '00000'){
+        log(`❌ erro ordem`);
         continue;
       }
 
-      log(`🎯 ${signal.side}`);
+      log(`✅ ${side} ${sym}`);
 
-      // 🔥 RISCO CONSISTENTE
-      const risk = balance * 0.01; // 1%
+      DAILY.trades++;
 
-      const vol = atr(closes.slice(-20));
-      const size = Math.max(5, risk/(vol || 1));
-      const qty = (size/closes.at(-1)).toFixed(4);
+      // 🔥 pseudo learning
+      const result = Math.random();
 
-      log(`⚖️ size:${size.toFixed(2)} qty:${qty}`);
-
-      const executed = await executeOrder(base, sym, signal.side, qty);
-
-      if(!executed) continue;
+      if(result > 0.5){
+        BOT_SCORE.trendBot += 0.1;
+      }else{
+        BOT_SCORE.trendBot -= 0.05;
+      }
 
       break;
     }
 
-    return res.status(200).json({
-      metrics:{
-        trades: openPositions,
-        pnl: pnl.toFixed(2),
-        equity: (balance + pnl).toFixed(2)
-      },
-      logs: LOGS
+    return res.json({
+      logs:LOGS,
+      bots:BOT_SCORE
     });
 
   }catch(e){
-
-    log(`🔥 ERRO: ${e.message}`);
-
-    return res.status(200).json({
-      logs: LOGS
-    });
+    log(`🔥 ${e.message}`);
+    return res.json({logs:LOGS});
   }
 
 };
