@@ -12,16 +12,11 @@ body{
   padding:20px;
 }
 
-h2{
-  margin-bottom:20px;
-}
-
 .box{
   background:#1e293b;
   padding:15px;
   margin-bottom:15px;
   border-radius:10px;
-  box-shadow:0 0 10px rgba(0,0,0,0.3);
 }
 
 .logs{
@@ -34,15 +29,16 @@ h2{
   font-family:monospace;
 }
 
-.log-entry{
-  margin-bottom:4px;
-  opacity:0.9;
+button{
+  padding:10px;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+  font-weight:bold;
 }
 
-.green{ color:#22c55e; }
-.red{ color:#ef4444; }
-.yellow{ color:#facc15; }
-.blue{ color:#38bdf8; }
+.on{ background:#22c55e; color:#000; }
+.off{ background:#ef4444; color:#fff; }
 
 </style>
 </head>
@@ -52,75 +48,101 @@ h2{
 <h2>🏦 Trading Desk</h2>
 
 <div class="box">
+<h3>⚙️ Bot Control</h3>
+<button id="toggleBtn" onclick="toggleBot()">...</button>
+<div id="status"></div>
+</div>
+
+<div class="box">
 <h3>📊 Performance</h3>
 <div id="perf">A carregar...</div>
 </div>
 
 <div class="box">
-<h3>🤖 Bots</h3>
-<div id="bots">A carregar...</div>
-</div>
-
-<div class="box">
-<h3>📜 Logs (tempo real)</h3>
+<h3>📜 Logs</h3>
 <div id="logs" class="logs">A carregar...</div>
 </div>
 
 <script>
 
-function colorLog(line){
+let botActive = false;
 
-  if(line.includes('💰')) return `<div class="log-entry green">${line}</div>`;
-  if(line.includes('❌') || line.includes('ERRO')) return `<div class="log-entry red">${line}</div>`;
-  if(line.includes('⚠️')) return `<div class="log-entry yellow">${line}</div>`;
-  if(line.includes('🎯') || line.includes('🗳️')) return `<div class="log-entry blue">${line}</div>`;
+// 🔥 OBTER ESTADO DO BOT
+async function getStatus(){
+  const r = await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'getSettings'})
+  });
 
-  return `<div class="log-entry">${line}</div>`;
-}
-
-async function load(){
-
- try{
-  const r = await fetch('/api/cron');
   const d = await r.json();
 
-  // ===== PERFORMANCE =====
-  if(d.metrics){
-    perf.innerHTML = `
-      Trades: ${d.metrics.trades}<br>
-      Winrate: ${d.metrics.winrate}%<br>
-      PnL: ${d.metrics.pnl}<br>
-      Equity: ${d.metrics.equity}<br>
-      Drawdown: ${d.metrics.drawdown}%
-    `;
-  }
+  botActive = d.active;
 
-  // ===== BOTS =====
-  if(d.bots){
-    bots.innerHTML = Object.entries(d.bots)
-      .map(([k,v])=>`
-        ${k} → ${(v.capital*100).toFixed(1)}%
-      `)
-      .join('<br>');
-  }
-
-  // ===== LOGS =====
-  if(d.logs && d.logs.length){
-    logs.innerHTML = d.logs.map(colorLog).join('');
-
-    // auto scroll para baixo
-    logs.scrollTop = 0;
-  } else {
-    logs.innerHTML = 'Sem logs ainda...';
-  }
-
- }catch(e){
-  logs.innerHTML = 'Erro ao carregar dados...';
- }
-
+  updateButton();
 }
 
-// update contínuo
+// 🔥 ATUALIZAR BOTÃO
+function updateButton(){
+  const btn = document.getElementById('toggleBtn');
+
+  if(botActive){
+    btn.innerText = 'DESLIGAR BOT';
+    btn.className = 'off';
+    status.innerHTML = '🟢 ATIVO';
+  }else{
+    btn.innerText = 'LIGAR BOT';
+    btn.className = 'on';
+    status.innerHTML = '🔴 DESLIGADO';
+  }
+}
+
+// 🔥 TOGGLE
+async function toggleBot(){
+
+  const r = await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'toggleBot'})
+  });
+
+  const d = await r.json();
+
+  botActive = d.active;
+
+  updateButton();
+}
+
+// 🔥 LOAD DATA
+async function load(){
+
+  try{
+
+    await getStatus();
+
+    const r = await fetch('/api/cron');
+    const d = await r.json();
+
+    // PERFORMANCE
+    if(d.metrics){
+      perf.innerHTML = `
+        Trades: ${d.metrics.trades}<br>
+        PnL: ${d.metrics.pnl}<br>
+        Equity: ${d.metrics.equity}
+      `;
+    }
+
+    // LOGS
+    if(d.logs){
+      logs.innerHTML = d.logs.map(l=>`<div>${l}</div>`).join('');
+    }
+
+  }catch(e){
+    logs.innerHTML = 'Erro a carregar...';
+  }
+}
+
+// auto refresh
 setInterval(load,5000);
 load();
 
