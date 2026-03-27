@@ -42,14 +42,13 @@ async function executeOrder(base, symbol, side, qty, closes){
   const move = Math.abs((closes.at(-1)-closes.at(-2))/closes.at(-2));
 
   if(move > 0.005){
-    log(`❌ ${symbol} slippage alto (${(move*100).toFixed(2)}%)`);
+    log(`❌ ${symbol} slippage alto`);
     return false;
   }
 
   const part = (qty/2).toFixed(4);
 
   for(let i=0;i<2;i++){
-
     await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -62,7 +61,6 @@ async function executeOrder(base, symbol, side, qty, closes){
     });
 
     log(`📦 ${symbol} ordem parcial ${i+1}`);
-
     await new Promise(r=>setTimeout(r,500));
   }
 
@@ -74,13 +72,32 @@ module.exports = async (req,res)=>{
 
   try{
 
-    // 🔥 COMPATÍVEL COM UPTIMEROBOT
     if(req.method === 'HEAD' || req.method === 'GET'){
       log('🌐 Trigger UptimeRobot');
     }
 
-    // 🔥 FIX CRÍTICO (ANTES DAVA ERRO <)
     const base = 'https://botfx-blush.vercel.app';
+
+    // ===== SALDO REAL =====
+    const balanceData = await (await fetch(base+'/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'balance'})
+    })).json();
+
+    let balance = 0;
+
+    if(balanceData.length){
+      const usdt = balanceData.find(b=>b.marginCoin === 'USDT');
+      balance = usdt ? parseFloat(usdt.available || 0) : 0;
+    }
+
+    log(`💰 Balance: $${balance.toFixed(2)}`);
+
+    if(balance < 5){
+      log('❌ saldo insuficiente');
+      return res.json({ logs: LOGS });
+    }
 
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
@@ -97,7 +114,11 @@ module.exports = async (req,res)=>{
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({action:'candles',symbol:sym,tf:'1m'})
+        body:JSON.stringify({
+          action:'candles',
+          symbol:sym,
+          tf:'1min' // 🔥 FIX
+        })
       })).json();
 
       if(!candles.length){
@@ -123,7 +144,7 @@ module.exports = async (req,res)=>{
         }
       }
 
-      log(`🗳️ Votos → BUY:${votes.BUY.toFixed(2)} SELL:${votes.SELL.toFixed(2)}`);
+      log(`🗳️ BUY:${votes.BUY.toFixed(2)} SELL:${votes.SELL.toFixed(2)}`);
 
       let side = null;
 
@@ -135,24 +156,20 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      log(`🎯 Decisão: ${side} ${sym}`);
+      log(`🎯 ${side} ${sym}`);
 
       const vol = atr(closes.slice(-20));
-      const baseRisk = 120*(settings.risk/100);
+      const baseRisk = balance*(settings.risk/100);
 
       const size = Math.max(5, baseRisk/(vol || 1));
       const qty = (size/closes.at(-1)).toFixed(4);
 
-      log(`⚖️ size:${size.toFixed(2)} vol:${vol.toFixed(4)}`);
+      log(`⚖️ size:${size.toFixed(2)}`);
 
       const executed = await executeOrder(base, sym, side, qty, closes);
 
-      if(!executed){
-        log(`⏭️ ${sym} trade cancelado`);
-        continue;
-      }
+      if(!executed) continue;
 
-      // SIMULAÇÃO (depois podemos ligar ao real)
       const pnl = (Math.random()-0.45)*2;
       addTrade(pnl);
 
@@ -162,7 +179,6 @@ module.exports = async (req,res)=>{
     }
 
     return res.status(200).json({
-      ok:true,
       metrics: getMetrics(),
       bots: botStats,
       logs: LOGS
@@ -173,8 +189,6 @@ module.exports = async (req,res)=>{
     log(`🔥 ERRO: ${e.message}`);
 
     return res.status(200).json({
-      ok:false,
-      error:e.message,
       logs: LOGS
     });
   }
