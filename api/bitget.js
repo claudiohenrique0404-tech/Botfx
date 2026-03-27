@@ -3,8 +3,13 @@ const { createHmac } = require('crypto');
 const BASE = 'https://api.bitget.com';
 
 let BOT_SETTINGS = {
-  risk: 1,
-  lev: 3
+  risk: 2,
+  lev: 3,
+  tpDollar: 2,
+  slDollar: 1,
+  symbols: ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT'],
+  maxPositions: 2,
+  maxLossStreak: 3
 };
 
 function sign(ts, method, path, body, secret) {
@@ -14,11 +19,6 @@ function sign(ts, method, path, body, secret) {
 }
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
 
   const KEY  = process.env.BITGET_API_KEY;
   const SEC  = process.env.BITGET_API_SECRET;
@@ -35,67 +35,59 @@ module.exports = async (req, res) => {
     };
   };
 
-  const bg = async (method, path, body) => {
-    const bs = body ? JSON.stringify(body) : undefined;
-    const r = await fetch(BASE + path, { method, headers: headers(method, path, bs), body: bs });
-    const d = await r.json();
-
-    if (!d || d.code !== '00000') {
-      throw new Error(d?.msg || 'Bitget error');
-    }
-
-    return d;
+  const bg = async (method, path) => {
+    const r = await fetch(BASE + path, { method, headers: headers(method, path) });
+    return await r.json();
   };
 
   try {
     const { action, ...p } = req.body || {};
 
-    if (action === 'getSettings') {
-      return res.json(BOT_SETTINGS);
-    }
+    if (action === 'getSettings') return res.json(BOT_SETTINGS);
 
     if (action === 'setSettings') {
       BOT_SETTINGS = { ...BOT_SETTINGS, ...p };
-      return res.json({ ok: true });
+      return res.json({ ok:true });
     }
 
-    if (action === 'allPrices') {
-      const r = await fetch(`${BASE}/api/v2/mix/market/tickers?productType=usdt-futures`);
-      const d = await r.json();
+    if (action === 'balance') {
+      const d = await bg('GET','/api/v2/mix/account/accounts?productType=USDT-FUTURES');
+      return res.json(d.data || []);
+    }
 
-      return res.json(
-        d.data.map(x => ({
-          symbol: x.symbol,
-          price: parseFloat(x.lastPr || x.last)
-        })).filter(x => x.price > 0)
-      );
+    if (action === 'candles') {
+      const r = await fetch(`${BASE}/api/v2/mix/market/candles?symbol=${p.symbol}&granularity=1m&limit=100`);
+      const d = await r.json();
+      return res.json(d.data || []);
     }
 
     if (action === 'positions') {
-      const data = await bg('GET', '/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT');
-      return res.json(data.data || []);
+      const d = await bg('GET','/api/v2/mix/position/all-position?productType=USDT-FUTURES');
+      return res.json(d.data || []);
     }
 
     if (action === 'order') {
-      const { symbol, side, quantity } = p;
-
-      const result = await bg('POST', '/api/v2/mix/order/place-order', {
-        symbol,
+      const body = JSON.stringify({
+        symbol: p.symbol,
         productType: 'USDT-FUTURES',
         marginCoin: 'USDT',
-        side: side === 'BUY' ? 'buy' : 'sell',
+        side: p.side === 'BUY' ? 'buy' : 'sell',
         tradeSide: 'open',
         orderType: 'market',
-        size: String(quantity),
+        size: String(p.quantity),
         leverage: String(BOT_SETTINGS.lev)
       });
 
-      return res.json(result);
+      const r = await fetch(BASE+'/api/v2/mix/order/place-order',{
+        method:'POST',
+        headers:headers('POST','/api/v2/mix/order/place-order',body),
+        body
+      });
+
+      return res.json(await r.json());
     }
 
-    return res.status(400).json({ error: 'Unknown action' });
-
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+  } catch(e){
+    return res.status(500).json({error:e.message});
   }
 };
