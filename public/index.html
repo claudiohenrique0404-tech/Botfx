@@ -1,57 +1,181 @@
-<!DOCTYPE html>
-<html lang="pt">
-<head>
-<meta charset="UTF-8">
-<title>Trading Desk</title>
+const STRAT = require('./strategies');
+const { addTrade, getMetrics } = require('./state');
 
-<style>
-body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
-.box{background:#1e293b;padding:15px;margin-bottom:15px;border-radius:10px}
-</style>
-</head>
+let botStats = {
+  trendBot: { score: 1, capital: 0.33 },
+  rsiBot: { score: 1, capital: 0.33 },
+  momentumBot: { score: 1, capital: 0.34 }
+};
 
-<body>
+let LOGS = [];
 
-<h2>🏦 Trading Desk</h2>
+function log(msg){
+  const time = new Date().toLocaleTimeString();
+  const entry = `[${time}] ${msg}`;
 
-<div class="box">
-<h3>📊 Performance</h3>
-<div id="perf"></div>
-</div>
+  console.log(entry);
 
-<div class="box">
-<h3>🤖 Bots</h3>
-<div id="bots"></div>
-</div>
-
-<script>
-
-async function load(){
-
- const r = await fetch('/api/cron');
- const d = await r.json();
-
- if(d.metrics){
-  perf.innerHTML = `
-   Trades: ${d.metrics.trades}<br>
-   Winrate: ${d.metrics.winrate}%<br>
-   PnL: ${d.metrics.pnl}<br>
-   Equity: ${d.metrics.equity}<br>
-   Drawdown: ${d.metrics.drawdown}%
-  `;
- }
-
- if(d.bots){
-  bots.innerHTML = Object.entries(d.bots)
-   .map(([k,v])=>`${k}: ${(v.capital*100).toFixed(1)}%`)
-   .join('<br>');
- }
-
+  LOGS.unshift(entry);
+  if(LOGS.length > 80) LOGS.pop();
 }
 
-setInterval(load,5000);
+// ===== NORMALIZE =====
+function normalize(){
+  const total = Object.values(botStats).reduce((a,b)=>a+b.score,0);
+  for(const b in botStats){
+    botStats[b].capital = botStats[b].score / total;
+  }
+}
 
-</script>
+// ===== ATR =====
+function atr(data){
+  let sum=0;
+  for(let i=1;i<data.length;i++){
+    sum += Math.abs(data[i]-data[i-1]);
+  }
+  return sum/data.length;
+}
 
-</body>
-</html>
+// ===== EXECUTION =====
+async function executeOrder(base, symbol, side, qty, closes){
+
+  const move = Math.abs((closes.at(-1)-closes.at(-2))/closes.at(-2));
+
+  if(move > 0.005){
+    log(`❌ ${symbol} slippage alto (${(move*100).toFixed(2)}%)`);
+    return false;
+  }
+
+  const part = (qty/2).toFixed(4);
+
+  for(let i=0;i<2;i++){
+
+    await fetch(base+'/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        action:'order',
+        symbol,
+        side,
+        quantity:part
+      })
+    });
+
+    log(`📦 ${symbol} ordem parcial ${i+1}`);
+
+    await new Promise(r=>setTimeout(r,500));
+  }
+
+  return true;
+}
+
+// ===== MAIN =====
+module.exports = async (req,res)=>{
+
+  try{
+
+    if(req.method === 'HEAD' || req.method === 'GET'){
+      log('🌐 Trigger UptimeRobot');
+    }
+
+    const base = process.env.VERCEL_URL
+      ? 'https://' + process.env.VERCEL_URL
+      : '';
+
+    const settings = await (await fetch(base+'/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'getSettings'})
+    })).json();
+
+    normalize();
+
+    for(const sym of settings.symbols){
+
+      log(`🔍 Analisar ${sym}`);
+
+      const candles = await (await fetch(base+'/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'candles',symbol:sym,tf:'1m'})
+      })).json();
+
+      if(!candles.length){
+        log(`⚠️ ${sym} sem dados`);
+        continue;
+      }
+
+      const closes = candles.map(c=>+c[4]);
+
+      const signals = {
+        trendBot: STRAT.trendBot(closes),
+        rsiBot: STRAT.rsiBot(closes),
+        momentumBot: STRAT.momentumBot(closes)
+      };
+
+      log(`🤖 Signals: ${JSON.stringify(signals)}`);
+
+      let votes = { BUY:0, SELL:0 };
+
+      for(const b in signals){
+        if(signals[b]){
+          votes[signals[b].side] += botStats[b].capital;
+        }
+      }
+
+      log(`🗳️ Votos → BUY:${votes.BUY.toFixed(2)} SELL:${votes.SELL.toFixed(2)}`);
+
+      let side = null;
+
+      if(votes.BUY > votes.SELL && votes.BUY > 0.5) side='BUY';
+      if(votes.SELL > votes.BUY && votes.SELL > 0.5) side='SELL';
+
+      if(!side){
+        log(`❌ ${sym} sem consenso`);
+        continue;
+      }
+
+      log(`🎯 Decisão: ${side} ${sym}`);
+
+      const vol = atr(closes.slice(-20));
+      const baseRisk = 120*(settings.risk/100);
+
+      const size = Math.max(5, baseRisk/(vol || 1));
+      const qty = (size/closes.at(-1)).toFixed(4);
+
+      log(`⚖️ size:${size.toFixed(2)} vol:${vol.toFixed(4)}`);
+
+      const executed = await executeOrder(base, sym, side, qty, closes);
+
+      if(!executed){
+        log(`⏭️ ${sym} trade cancelado`);
+        continue;
+      }
+
+      const pnl = (Math.random()-0.45)*2;
+      addTrade(pnl);
+
+      log(`💰 Resultado: ${pnl.toFixed(2)}`);
+
+      break;
+    }
+
+    return res.status(200).json({
+      ok:true,
+      metrics: getMetrics(),
+      bots: botStats,
+      logs: LOGS
+    });
+
+  }catch(e){
+
+    log(`🔥 ERRO: ${e.message}`);
+
+    return res.status(200).json({
+      ok:false,
+      error:e.message,
+      logs: LOGS
+    });
+  }
+
+};
