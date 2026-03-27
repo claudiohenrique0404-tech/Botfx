@@ -3,14 +3,14 @@ const ML = require('./ml');
 const { saveTrade, saveEquity } = require('./db');
 
 let LOGS = [];
+let LAST_TRADE = 0;
 
 function log(msg){
   const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
   const entry = `[${time}] ${msg}`;
-
   console.log(entry);
-  LOGS.unshift(entry);
 
+  LOGS.unshift(entry);
   if(LOGS.length > 100) LOGS.pop();
 }
 
@@ -20,6 +20,7 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
+    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -31,6 +32,7 @@ module.exports = async (req,res)=>{
       return res.json({logs:LOGS});
     }
 
+    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -39,12 +41,36 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 Balance: ${balance}`);
+    log(`💰 Balance: ${balance.toFixed(2)}`);
+
+    // ===== POSITIONS =====
+    const positions = await (await fetch(base+'/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'positions'})
+    })).json();
+
+    const openSymbols = positions.map(p => p.symbol);
+
+    log(`📊 Posições abertas: ${openSymbols.length}`);
+
+    // ===== RISK LIMIT =====
+    if(openSymbols.length >= 3){
+      log('⛔ Máx posições atingido');
+      return res.json({logs:LOGS});
+    }
 
     for(const sym of settings.symbols){
 
+      // ❌ evitar duplicar posição
+      if(openSymbols.includes(sym)){
+        log(`⚠️ Já em posição: ${sym}`);
+        continue;
+      }
+
       log(`🔍 ${sym}`);
 
+      // ===== MARKET DATA =====
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -62,15 +88,17 @@ module.exports = async (req,res)=>{
 
       const closes = candles.map(c=>+c[4]);
 
+      // ===== ML FILTER =====
       const ml = ML.optimize(closes);
 
       log(`🧠 winrate ${ml.winrate.toFixed(2)}`);
 
-      if(ml.winrate < 0.5){
+      if(ml.winrate < 0.55){
         log('🧠 bloqueado');
         continue;
       }
 
+      // ===== STRATEGY =====
       const signal = STRAT.trendBot(closes);
 
       if(!signal){
@@ -78,8 +106,23 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      const qty = (Math.max(5, balance*0.01)/closes.at(-1)).toFixed(4);
+      // ===== COOLDOWN =====
+      const now = Date.now();
 
+      if(now - LAST_TRADE < 8000){
+        log('⏱ cooldown ativo');
+        continue;
+      }
+
+      // ===== SIZE CONTROL =====
+      const riskSize = balance * 0.02; // 2% por trade
+      const sizeUSD = Math.max(5, riskSize);
+
+      const qty = (sizeUSD / closes.at(-1)).toFixed(4);
+
+      log(`⚖️ size:${sizeUSD.toFixed(2)} qty:${qty}`);
+
+      // ===== EXECUTION =====
       const r = await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -94,12 +137,15 @@ module.exports = async (req,res)=>{
       const data = await r.json();
 
       if(data.code !== '00000'){
-        log(`❌ erro ordem`);
+        log(`❌ ERRO ORDEM: ${JSON.stringify(data)}`);
         continue;
       }
 
+      LAST_TRADE = Date.now();
+
       log(`✅ ${signal.side} ${sym}`);
 
+      // ===== SAVE =====
       await saveTrade({
         symbol:sym,
         side:signal.side,
@@ -109,7 +155,7 @@ module.exports = async (req,res)=>{
 
       await saveEquity(balance);
 
-      break;
+      break; // só 1 trade por ciclo
     }
 
     res.json({logs:LOGS});
