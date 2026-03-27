@@ -1,148 +1,34 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html>
 <head>
-<meta charset="UTF-8">
 <title>Trading Desk</title>
-
-<style>
-body{
-  background:#0f172a;
-  color:#e2e8f0;
-  font-family:Arial;
-  padding:20px;
-}
-
-.box{
-  background:#1e293b;
-  padding:15px;
-  margin-bottom:15px;
-  border-radius:10px;
-}
-
-.logs{
-  max-height:300px;
-  overflow-y:auto;
-  font-size:12px;
-  background:#020617;
-  padding:10px;
-  border-radius:8px;
-  font-family:monospace;
-}
-
-button{
-  padding:10px;
-  border:none;
-  border-radius:6px;
-  cursor:pointer;
-  font-weight:bold;
-}
-
-.on{ background:#22c55e; color:#000; }
-.off{ background:#ef4444; color:#fff; }
-
-</style>
 </head>
-
 <body>
 
-<h2>🏦 Trading Desk</h2>
+<h2>📊 Dashboard</h2>
 
-<div class="box">
-<h3>⚙️ Bot Control</h3>
-<button id="toggleBtn" onclick="toggleBot()">...</button>
-<div id="status"></div>
-</div>
-
-<div class="box">
-<h3>📊 Performance</h3>
-<div id="perf">A carregar...</div>
-</div>
-
-<div class="box">
-<h3>📜 Logs</h3>
-<div id="logs" class="logs">A carregar...</div>
-</div>
+<div id="logs"></div>
+<div id="history"></div>
+<div id="equity"></div>
 
 <script>
 
-let botActive = false;
-
-// 🔥 OBTER ESTADO DO BOT
-async function getStatus(){
-  const r = await fetch('/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'getSettings'})
-  });
-
-  const d = await r.json();
-
-  botActive = d.active;
-
-  updateButton();
-}
-
-// 🔥 ATUALIZAR BOTÃO
-function updateButton(){
-  const btn = document.getElementById('toggleBtn');
-
-  if(botActive){
-    btn.innerText = 'DESLIGAR BOT';
-    btn.className = 'off';
-    status.innerHTML = '🟢 ATIVO';
-  }else{
-    btn.innerText = 'LIGAR BOT';
-    btn.className = 'on';
-    status.innerHTML = '🔴 DESLIGADO';
-  }
-}
-
-// 🔥 TOGGLE
-async function toggleBot(){
-
-  const r = await fetch('/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'toggleBot'})
-  });
-
-  const d = await r.json();
-
-  botActive = d.active;
-
-  updateButton();
-}
-
-// 🔥 LOAD DATA
 async function load(){
 
-  try{
+  const stats = await (await fetch('/api/stats')).json();
+  const cron = await (await fetch('/api/cron')).json();
 
-    await getStatus();
+  logs.innerHTML = cron.logs.join('<br>');
 
-    const r = await fetch('/api/cron');
-    const d = await r.json();
+  history.innerHTML = stats.trades
+    .map(t=>`${t.side} ${t.symbol}`)
+    .join('<br>');
 
-    // PERFORMANCE
-    if(d.metrics){
-      perf.innerHTML = `
-        Trades: ${d.metrics.trades}<br>
-        PnL: ${d.metrics.pnl}<br>
-        Equity: ${d.metrics.equity}
-      `;
-    }
-
-    // LOGS
-    if(d.logs){
-      logs.innerHTML = d.logs.map(l=>`<div>${l}</div>`).join('');
-    }
-
-  }catch(e){
-    logs.innerHTML = 'Erro a carregar...';
-  }
+  equity.innerHTML = stats.equity
+    .map(e=>e.value)
+    .join(' → ');
 }
 
-// auto refresh
 setInterval(load,5000);
 load();
 
