@@ -3,7 +3,7 @@ const fetch = global.fetch || require('node-fetch');
 
 const BASE = 'https://api.bitget.com';
 
-// 🔥 GLOBAL PERSISTENTE
+// GLOBAL
 if(!global.BOT_SETTINGS){
   global.BOT_SETTINGS = {
     active: false,
@@ -21,7 +21,7 @@ function setSettings(newSettings){
   global.BOT_SETTINGS = { ...global.BOT_SETTINGS, ...newSettings };
 }
 
-// ===== SIGN =====
+// SIGN
 function sign(ts, method, path, body, secret) {
   return createHmac('sha256', secret)
     .update(ts + method.toUpperCase() + path + (body || ''))
@@ -38,7 +38,6 @@ module.exports = async (req, res) => {
     const SEC  = process.env.BITGET_API_SECRET;
     const PASS = process.env.BITGET_PASSPHRASE;
 
-    // 🔥 valida keys
     if (!KEY || !SEC || !PASS) {
       return res.status(500).json({ error: 'Missing API keys' });
     }
@@ -62,7 +61,7 @@ module.exports = async (req, res) => {
       return await r.json();
     };
 
-    // ===== SETTINGS =====
+    // SETTINGS
     if (action === 'getSettings') {
       return res.json(getSettings());
     }
@@ -78,7 +77,7 @@ module.exports = async (req, res) => {
       return res.json({ active: !current });
     }
 
-    // ===== BALANCE =====
+    // BALANCE
     if (action === 'balance') {
       const d = await bg(
         'GET',
@@ -87,7 +86,7 @@ module.exports = async (req, res) => {
       return res.json(d.data || []);
     }
 
-    // ===== CANDLES =====
+    // CANDLES
     if (action === 'candles') {
       const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=USDT-FUTURES&granularity=${p.tf}&limit=100`;
       const r = await fetch(url);
@@ -95,7 +94,7 @@ module.exports = async (req, res) => {
       return res.json(d.data || []);
     }
 
-    // ===== POSITIONS =====
+    // POSITIONS
     if (action === 'positions') {
       const d = await bg(
         'GET',
@@ -104,7 +103,7 @@ module.exports = async (req, res) => {
       return res.json(d.data || []);
     }
 
-    // ===== ORDER =====
+    // ORDER (🔥 FIX AQUI)
     if (action === 'order') {
 
       const settings = getSettings();
@@ -113,6 +112,7 @@ module.exports = async (req, res) => {
         symbol: p.symbol,
         productType: 'USDT-FUTURES',
         marginCoin: 'USDT',
+        marginMode: 'isolated', // 🔥 FIX CRÍTICO
         side: p.side === 'BUY' ? 'buy' : 'sell',
         tradeSide: 'open',
         orderType: 'market',
