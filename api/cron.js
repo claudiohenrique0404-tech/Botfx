@@ -62,8 +62,8 @@ module.exports = async (req,res)=>{
 
   try{
 
-    // 🔥 PERMITIR GET (UPTIME ROBOT)
-    if(req.method === 'GET'){
+    // 🔥 COMPATÍVEL COM UPTIMEROBOT (HEAD + GET)
+    if(req.method === 'HEAD' || req.method === 'GET'){
       console.log('🌐 Trigger externo (UptimeRobot)');
     }
 
@@ -131,9 +131,8 @@ module.exports = async (req,res)=>{
 
       if(!executed) continue;
 
-      // ===== SIMULAÇÃO PnL (para tracking) =====
+      // ===== TRACKING =====
       const pnl = (Math.random()-0.45)*2;
-
       addTrade(pnl);
 
       console.log(`💰 PnL simulado: ${pnl.toFixed(2)}`);
@@ -141,7 +140,6 @@ module.exports = async (req,res)=>{
       break;
     }
 
-    // ✅ SEMPRE 200 PARA UPTIMEROBOT
     return res.status(200).json({
       ok:true,
       metrics: getMetrics(),
@@ -151,7 +149,6 @@ module.exports = async (req,res)=>{
   }catch(e){
     console.error(e);
 
-    // ⚠️ mesmo em erro → 200 para não quebrar uptime
     return res.status(200).json({
       ok:false,
       error:e.message
