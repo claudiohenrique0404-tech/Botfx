@@ -7,7 +7,19 @@ let botStats = {
   momentumBot: { score: 1, capital: 0.34 }
 };
 
-// ===== NORMALIZE CAPITAL =====
+let LOGS = [];
+
+function log(msg){
+  const time = new Date().toLocaleTimeString();
+  const entry = `[${time}] ${msg}`;
+
+  console.log(entry);
+
+  LOGS.unshift(entry);
+  if(LOGS.length > 80) LOGS.pop();
+}
+
+// ===== NORMALIZE =====
 function normalize(){
   const total = Object.values(botStats).reduce((a,b)=>a+b.score,0);
   for(const b in botStats){
@@ -24,20 +36,20 @@ function atr(data){
   return sum/data.length;
 }
 
-// ===== EXECUÇÃO INTELIGENTE =====
+// ===== EXECUTION =====
 async function executeOrder(base, symbol, side, qty, closes){
 
   const move = Math.abs((closes.at(-1)-closes.at(-2))/closes.at(-2));
 
-  // SLIPPAGE FILTER
   if(move > 0.005){
-    console.log('❌ Slippage alto - skip');
+    log(`❌ ${symbol} slippage alto (${(move*100).toFixed(2)}%)`);
     return false;
   }
 
   const part = (qty/2).toFixed(4);
 
   for(let i=0;i<2;i++){
+
     await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -49,7 +61,7 @@ async function executeOrder(base, symbol, side, qty, closes){
       })
     });
 
-    console.log(`📦 Ordem parcial ${i+1}`);
+    log(`📦 ${symbol} ordem parcial ${i+1}`);
 
     await new Promise(r=>setTimeout(r,500));
   }
@@ -62,9 +74,8 @@ module.exports = async (req,res)=>{
 
   try{
 
-    // 🔥 COMPATÍVEL COM UPTIMEROBOT (HEAD + GET)
     if(req.method === 'HEAD' || req.method === 'GET'){
-      console.log('🌐 Trigger externo (UptimeRobot)');
+      log('🌐 Trigger UptimeRobot');
     }
 
     const base = process.env.VERCEL_URL
@@ -81,13 +92,18 @@ module.exports = async (req,res)=>{
 
     for(const sym of settings.symbols){
 
+      log(`🔍 Analisar ${sym}`);
+
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({action:'candles',symbol:sym,tf:'1m'})
       })).json();
 
-      if(!candles.length) continue;
+      if(!candles.length){
+        log(`⚠️ ${sym} sem dados`);
+        continue;
+      }
 
       const closes = candles.map(c=>+c[4]);
 
@@ -97,7 +113,8 @@ module.exports = async (req,res)=>{
         momentumBot: STRAT.momentumBot(closes)
       };
 
-      // ===== VOTAÇÃO =====
+      log(`🤖 Signals: ${JSON.stringify(signals)}`);
+
       let votes = { BUY:0, SELL:0 };
 
       for(const b in signals){
@@ -106,36 +123,39 @@ module.exports = async (req,res)=>{
         }
       }
 
+      log(`🗳️ Votos → BUY:${votes.BUY.toFixed(2)} SELL:${votes.SELL.toFixed(2)}`);
+
       let side = null;
 
       if(votes.BUY > votes.SELL && votes.BUY > 0.5) side='BUY';
       if(votes.SELL > votes.BUY && votes.SELL > 0.5) side='SELL';
 
       if(!side){
-        console.log(`❌ Sem consenso ${sym}`);
+        log(`❌ ${sym} sem consenso`);
         continue;
       }
 
-      console.log(`🗳️ ${sym} BUY:${votes.BUY.toFixed(2)} SELL:${votes.SELL.toFixed(2)}`);
+      log(`🎯 Decisão: ${side} ${sym}`);
 
-      // ===== RISK PARITY =====
       const vol = atr(closes.slice(-20));
       const baseRisk = 120*(settings.risk/100);
 
       const size = Math.max(5, baseRisk/(vol || 1));
       const qty = (size/closes.at(-1)).toFixed(4);
 
-      console.log(`⚖️ size:${size.toFixed(2)} vol:${vol.toFixed(4)}`);
+      log(`⚖️ size:${size.toFixed(2)} vol:${vol.toFixed(4)}`);
 
       const executed = await executeOrder(base, sym, side, qty, closes);
 
-      if(!executed) continue;
+      if(!executed){
+        log(`⏭️ ${sym} trade cancelado`);
+        continue;
+      }
 
-      // ===== TRACKING =====
       const pnl = (Math.random()-0.45)*2;
       addTrade(pnl);
 
-      console.log(`💰 PnL simulado: ${pnl.toFixed(2)}`);
+      log(`💰 Resultado: ${pnl.toFixed(2)}`);
 
       break;
     }
@@ -143,15 +163,18 @@ module.exports = async (req,res)=>{
     return res.status(200).json({
       ok:true,
       metrics: getMetrics(),
-      bots: botStats
+      bots: botStats,
+      logs: LOGS
     });
 
   }catch(e){
-    console.error(e);
+
+    log(`🔥 ERRO: ${e.message}`);
 
     return res.status(200).json({
       ok:false,
-      error:e.message
+      error:e.message,
+      logs: LOGS
     });
   }
 
