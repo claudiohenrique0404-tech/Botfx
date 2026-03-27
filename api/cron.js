@@ -19,9 +19,10 @@ function atr(data){
   return sum/data.length;
 }
 
+// 🔥 EXECUÇÃO REAL COM VALIDAÇÃO
 async function executeOrder(base, symbol, side, qty){
 
-  await fetch(base+'/api/bitget',{
+  const r = await fetch(base+'/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
@@ -32,7 +33,17 @@ async function executeOrder(base, symbol, side, qty){
     })
   });
 
-  log(`📦 Ordem executada ${symbol}`);
+  const data = await r.json();
+
+  // 🔥 VALIDAR RESPOSTA REAL
+  if(!data || data.code !== '00000'){
+    log(`❌ ERRO ORDEM ${symbol}: ${JSON.stringify(data)}`);
+    return false;
+  }
+
+  log(`✅ ORDEM REAL EXECUTADA ${symbol}`);
+
+  return true;
 }
 
 module.exports = async (req,res)=>{
@@ -41,7 +52,7 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== BALANCE REAL =====
+    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -57,35 +68,16 @@ module.exports = async (req,res)=>{
 
     log(`💰 Balance: $${balance.toFixed(2)}`);
 
-    // ===== POSIÇÕES REAIS =====
-    const positions = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'positions'})
-    })).json();
-
-    let totalPnL = 0;
-    let openTrades = 0;
-
-    if(positions.length){
-      positions.forEach(p=>{
-        const pnl = parseFloat(p.unrealizedPL || 0);
-        totalPnL += pnl;
-
-        if(parseFloat(p.total) > 0){
-          openTrades++;
-        }
-      });
-    }
-
-    log(`📊 Posições abertas: ${openTrades}`);
-
-    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'getSettings'})
     })).json();
+
+    if(!settings.active){
+      log('⏸ Bot desligado');
+      return res.json({ logs: LOGS });
+    }
 
     for(const sym of settings.symbols){
 
@@ -123,18 +115,19 @@ module.exports = async (req,res)=>{
       const size = Math.max(5, risk/(vol || 1));
       const qty = (size/closes.at(-1)).toFixed(4);
 
-      await executeOrder(base, sym, trend.side, qty);
+      log(`⚖️ size:${size.toFixed(2)} qty:${qty}`);
+
+      const executed = await executeOrder(base, sym, trend.side, qty);
+
+      if(!executed){
+        log(`❌ Trade falhou`);
+        continue;
+      }
 
       break;
     }
 
     return res.status(200).json({
-      metrics:{
-        trades: openTrades,
-        pnl: totalPnL.toFixed(2),
-        equity: (balance + totalPnL).toFixed(2),
-        drawdown: 0
-      },
       logs: LOGS
     });
 
