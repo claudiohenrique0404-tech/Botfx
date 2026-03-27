@@ -1,15 +1,25 @@
 const { createHmac } = require('crypto');
+const fetch = global.fetch || require('node-fetch');
 
 const BASE = 'https://api.bitget.com';
 
-let BOT_SETTINGS = {
-  risk: 2,
-  lev: 3,
-  tpDollar: 2,
-  slDollar: 1,
-  symbols: ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT'],
-  maxPositions: 2
-};
+// 🔥 GLOBAL PERSISTENTE
+if(!global.BOT_SETTINGS){
+  global.BOT_SETTINGS = {
+    active: false,
+    risk: 2,
+    lev: 3,
+    symbols: ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT']
+  };
+}
+
+function getSettings(){
+  return global.BOT_SETTINGS;
+}
+
+function setSettings(newSettings){
+  global.BOT_SETTINGS = { ...global.BOT_SETTINGS, ...newSettings };
+}
 
 // ===== SIGN =====
 function sign(ts, method, path, body, secret) {
@@ -27,6 +37,11 @@ module.exports = async (req, res) => {
     const KEY  = process.env.BITGET_API_KEY;
     const SEC  = process.env.BITGET_API_SECRET;
     const PASS = process.env.BITGET_PASSPHRASE;
+
+    // 🔥 valida keys
+    if (!KEY || !SEC || !PASS) {
+      return res.status(500).json({ error: 'Missing API keys' });
+    }
 
     const headers = (method, path, body) => {
       const ts = Date.now().toString();
@@ -49,12 +64,18 @@ module.exports = async (req, res) => {
 
     // ===== SETTINGS =====
     if (action === 'getSettings') {
-      return res.json(BOT_SETTINGS);
+      return res.json(getSettings());
     }
 
     if (action === 'setSettings') {
-      BOT_SETTINGS = { ...BOT_SETTINGS, ...p };
+      setSettings(p);
       return res.json({ ok:true });
+    }
+
+    if (action === 'toggleBot') {
+      const current = getSettings().active;
+      setSettings({ active: !current });
+      return res.json({ active: !current });
     }
 
     // ===== BALANCE =====
@@ -66,14 +87,11 @@ module.exports = async (req, res) => {
       return res.json(d.data || []);
     }
 
-    // ===== CANDLES (FIX REAL) =====
+    // ===== CANDLES =====
     if (action === 'candles') {
-
       const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=USDT-FUTURES&granularity=${p.tf}&limit=100`;
-
       const r = await fetch(url);
       const d = await r.json();
-
       return res.json(d.data || []);
     }
 
@@ -89,6 +107,8 @@ module.exports = async (req, res) => {
     // ===== ORDER =====
     if (action === 'order') {
 
+      const settings = getSettings();
+
       const body = JSON.stringify({
         symbol: p.symbol,
         productType: 'USDT-FUTURES',
@@ -97,7 +117,7 @@ module.exports = async (req, res) => {
         tradeSide: 'open',
         orderType: 'market',
         size: String(p.quantity),
-        leverage: String(BOT_SETTINGS.lev)
+        leverage: String(settings.lev)
       });
 
       const r = await fetch(BASE + '/api/v2/mix/order/place-order', {
@@ -120,7 +140,6 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'Invalid action' });
 
   } catch(e){
-    console.error(e);
     return res.status(500).json({ error: e.message });
   }
 };
