@@ -2,12 +2,9 @@ const { createHmac } = require('crypto');
 
 const BASE = 'https://api.bitget.com';
 
-// memória simples (substitui DB)
 let BOT_SETTINGS = {
   risk: 1,
-  lev: 3,
-  tp: 2,
-  sl: 1.5
+  lev: 3
 };
 
 function sign(ts, method, path, body, secret) {
@@ -53,7 +50,6 @@ module.exports = async (req, res) => {
   try {
     const { action, ...p } = req.body || {};
 
-    // SETTINGS
     if (action === 'getSettings') {
       return res.json(BOT_SETTINGS);
     }
@@ -63,7 +59,6 @@ module.exports = async (req, res) => {
       return res.json({ ok: true });
     }
 
-    // PREÇOS
     if (action === 'allPrices') {
       const r = await fetch(`${BASE}/api/v2/mix/market/tickers?productType=usdt-futures`);
       const d = await r.json();
@@ -76,19 +71,11 @@ module.exports = async (req, res) => {
       );
     }
 
-    // POSIÇÕES
     if (action === 'positions') {
       const data = await bg('GET', '/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT');
       return res.json(data.data || []);
     }
 
-    // HISTÓRICO
-    if (action === 'history') {
-      const data = await bg('GET', '/api/v2/mix/order/history-orders?productType=USDT-FUTURES&pageSize=50');
-      return res.json(data.data || []);
-    }
-
-    // ORDEM
     if (action === 'order') {
       const { symbol, side, quantity } = p;
 
