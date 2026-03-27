@@ -8,10 +8,10 @@ let BOT_SETTINGS = {
   tpDollar: 2,
   slDollar: 1,
   symbols: ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT'],
-  maxPositions: 2,
-  maxLossStreak: 3
+  maxPositions: 2
 };
 
+// ===== SIGN =====
 function sign(ts, method, path, body, secret) {
   return createHmac('sha256', secret)
     .update(ts + method.toUpperCase() + path + (body || ''))
@@ -20,53 +20,72 @@ function sign(ts, method, path, body, secret) {
 
 module.exports = async (req, res) => {
 
-  const KEY  = process.env.BITGET_API_KEY;
-  const SEC  = process.env.BITGET_API_SECRET;
-  const PASS = process.env.BITGET_PASSPHRASE;
+  try{
 
-  const headers = (method, path, body) => {
-    const ts = Date.now().toString();
-    return {
-      'ACCESS-KEY': KEY,
-      'ACCESS-SIGN': sign(ts, method, path, body || '', SEC),
-      'ACCESS-TIMESTAMP': ts,
-      'ACCESS-PASSPHRASE': PASS,
-      'Content-Type': 'application/json'
-    };
-  };
-
-  const bg = async (method, path) => {
-    const r = await fetch(BASE + path, { method, headers: headers(method, path) });
-    return await r.json();
-  };
-
-  try {
     const { action, ...p } = req.body || {};
 
-    if (action === 'getSettings') return res.json(BOT_SETTINGS);
+    const KEY  = process.env.BITGET_API_KEY;
+    const SEC  = process.env.BITGET_API_SECRET;
+    const PASS = process.env.BITGET_PASSPHRASE;
+
+    const headers = (method, path, body) => {
+      const ts = Date.now().toString();
+      return {
+        'ACCESS-KEY': KEY,
+        'ACCESS-SIGN': sign(ts, method, path, body || '', SEC),
+        'ACCESS-TIMESTAMP': ts,
+        'ACCESS-PASSPHRASE': PASS,
+        'Content-Type': 'application/json'
+      };
+    };
+
+    const bg = async (method, path) => {
+      const r = await fetch(BASE + path, {
+        method,
+        headers: headers(method, path)
+      });
+      return await r.json();
+    };
+
+    // ===== SETTINGS =====
+    if (action === 'getSettings') {
+      return res.json(BOT_SETTINGS);
+    }
 
     if (action === 'setSettings') {
       BOT_SETTINGS = { ...BOT_SETTINGS, ...p };
       return res.json({ ok:true });
     }
 
+    // ===== BALANCE =====
     if (action === 'balance') {
-      const d = await bg('GET','/api/v2/mix/account/accounts?productType=USDT-FUTURES');
+      const d = await bg(
+        'GET',
+        '/api/v2/mix/account/accounts?productType=USDT-FUTURES'
+      );
       return res.json(d.data || []);
     }
 
+    // ===== CANDLES =====
     if (action === 'candles') {
-      const r = await fetch(`${BASE}/api/v2/mix/market/candles?symbol=${p.symbol}&granularity=1m&limit=100`);
+      const url = `${BASE}/api/v2/mix/market/candles?symbol=${p.symbol}&granularity=${p.tf}&limit=100`;
+      const r = await fetch(url);
       const d = await r.json();
       return res.json(d.data || []);
     }
 
+    // ===== POSITIONS =====
     if (action === 'positions') {
-      const d = await bg('GET','/api/v2/mix/position/all-position?productType=USDT-FUTURES');
+      const d = await bg(
+        'GET',
+        '/api/v2/mix/position/all-position?productType=USDT-FUTURES'
+      );
       return res.json(d.data || []);
     }
 
+    // ===== ORDER =====
     if (action === 'order') {
+
       const body = JSON.stringify({
         symbol: p.symbol,
         productType: 'USDT-FUTURES',
@@ -78,16 +97,27 @@ module.exports = async (req, res) => {
         leverage: String(BOT_SETTINGS.lev)
       });
 
-      const r = await fetch(BASE+'/api/v2/mix/order/place-order',{
-        method:'POST',
-        headers:headers('POST','/api/v2/mix/order/place-order',body),
+      const r = await fetch(BASE + '/api/v2/mix/order/place-order', {
+        method: 'POST',
+        headers: headers(
+          'POST',
+          '/api/v2/mix/order/place-order',
+          body
+        ),
         body
       });
 
-      return res.json(await r.json());
+      const data = await r.json();
+
+      console.log('📦 ORDER:', data);
+
+      return res.json(data);
     }
 
+    return res.status(400).json({ error: 'Invalid action' });
+
   } catch(e){
-    return res.status(500).json({error:e.message});
+    console.error(e);
+    return res.status(500).json({ error: e.message });
   }
 };
