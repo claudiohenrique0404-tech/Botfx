@@ -3,8 +3,6 @@ const STRAT = require('./strategies');
 let LOGS = [];
 
 function log(msg){
-
-  // 🔥 TIMEZONE FIX (PORTUGAL)
   const time = new Date().toLocaleTimeString('pt-PT', {
     hour: '2-digit',
     minute: '2-digit',
@@ -13,11 +11,10 @@ function log(msg){
   });
 
   const entry = `[${time}] ${msg}`;
-
   console.log(entry);
 
   LOGS.unshift(entry);
-  if(LOGS.length > 80) LOGS.pop();
+  if(LOGS.length > 100) LOGS.pop();
 }
 
 function atr(data){
@@ -48,7 +45,7 @@ async function executeOrder(base, symbol, side, qty){
     return false;
   }
 
-  log(`✅ ORDEM REAL EXECUTADA ${symbol}`);
+  log(`✅ ORDEM EXECUTADA ${symbol}`);
   return true;
 }
 
@@ -58,21 +55,7 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    const balanceData = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'balance'})
-    })).json();
-
-    let balance = 0;
-
-    if(balanceData.length){
-      const usdt = balanceData.find(b=>b.marginCoin === 'USDT');
-      balance = usdt ? parseFloat(usdt.available || 0) : 0;
-    }
-
-    log(`💰 Balance: $${balance.toFixed(2)}`);
-
+    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -84,9 +67,60 @@ module.exports = async (req,res)=>{
       return res.json({ logs: LOGS });
     }
 
+    // ===== BALANCE =====
+    const balanceData = await (await fetch(base+'/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'balance'})
+    })).json();
+
+    let balance = 0;
+
+    if(balanceData.length){
+      const usdt = balanceData.find(b=>b.marginCoin === 'USDT');
+      balance = parseFloat(usdt.available || 0);
+    }
+
+    log(`💰 Balance: $${balance.toFixed(2)}`);
+
+    // ===== POSITIONS =====
+    const positions = await (await fetch(base+'/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'positions'})
+    })).json();
+
+    let openPositions = 0;
+    let pnl = 0;
+
+    if(positions.length){
+      positions.forEach(p=>{
+        if(parseFloat(p.total) > 0){
+          openPositions++;
+          pnl += parseFloat(p.unrealizedPL || 0);
+        }
+      });
+    }
+
+    log(`📊 Posições abertas: ${openPositions}`);
+
+    // 🔥 LIMITADOR
+    if(openPositions >= 2){
+      log('⛔ Máx posições atingido');
+      return res.json({
+        metrics:{
+          trades: openPositions,
+          pnl: pnl.toFixed(2),
+          equity: (balance + pnl).toFixed(2)
+        },
+        logs: LOGS
+      });
+    }
+
+    // ===== LOOP =====
     for(const sym of settings.symbols){
 
-      log(`🔍 Analisar ${sym}`);
+      log(`🔍 ${sym}`);
 
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
@@ -99,40 +133,43 @@ module.exports = async (req,res)=>{
       })).json();
 
       if(!candles.length){
-        log(`⚠️ ${sym} sem dados`);
+        log(`⚠️ sem dados`);
         continue;
       }
 
       const closes = candles.map(c=>+c[4]);
 
-      const trend = STRAT.trendBot(closes);
+      const signal = STRAT.trendBot(closes);
 
-      if(!trend || trend.confidence < 0.5){
-        log(`❌ ${sym} sem sinal`);
+      if(!signal || signal.confidence < 0.55){
+        log(`❌ sem sinal`);
         continue;
       }
 
-      log(`🎯 ${trend.side} ${sym}`);
+      log(`🎯 ${signal.side}`);
+
+      // 🔥 RISCO CONSISTENTE
+      const risk = balance * 0.01; // 1%
 
       const vol = atr(closes.slice(-20));
-      const risk = balance * (settings.risk/100);
-
       const size = Math.max(5, risk/(vol || 1));
       const qty = (size/closes.at(-1)).toFixed(4);
 
       log(`⚖️ size:${size.toFixed(2)} qty:${qty}`);
 
-      const executed = await executeOrder(base, sym, trend.side, qty);
+      const executed = await executeOrder(base, sym, signal.side, qty);
 
-      if(!executed){
-        log(`❌ Trade falhou`);
-        continue;
-      }
+      if(!executed) continue;
 
       break;
     }
 
     return res.status(200).json({
+      metrics:{
+        trades: openPositions,
+        pnl: pnl.toFixed(2),
+        equity: (balance + pnl).toFixed(2)
+      },
       logs: LOGS
     });
 
