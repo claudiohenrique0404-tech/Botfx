@@ -1,7 +1,14 @@
 {
   "name": "botfx",
   "version": "1.0.0",
+  "description": "Trading bot quant-lite com Bitget + ML + Dashboard",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "@upstash/redis": "^1.34.0"
+    "@upstash/redis": "^1.34.0",
+    "node-fetch": "^2.6.7"
   }
 }
