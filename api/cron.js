@@ -19,12 +19,6 @@ function log(msg){
   if(LOGS.length > 80) LOGS.pop();
 }
 
-// 🔥 CONVERTER SYMBOL PARA BITGET FUTURES
-function formatSymbol(sym){
-  return sym + '_UMCBL';
-}
-
-// ===== NORMALIZE =====
 function normalize(){
   const total = Object.values(botStats).reduce((a,b)=>a+b.score,0);
   for(const b in botStats){
@@ -32,7 +26,6 @@ function normalize(){
   }
 }
 
-// ===== ATR =====
 function atr(data){
   let sum=0;
   for(let i=1;i<data.length;i++){
@@ -41,7 +34,6 @@ function atr(data){
   return sum/data.length;
 }
 
-// ===== EXECUTION =====
 async function executeOrder(base, symbol, side, qty, closes){
 
   const move = Math.abs((closes.at(-1)-closes.at(-2))/closes.at(-2));
@@ -72,7 +64,6 @@ async function executeOrder(base, symbol, side, qty, closes){
   return true;
 }
 
-// ===== MAIN =====
 module.exports = async (req,res)=>{
 
   try{
@@ -83,7 +74,7 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== BALANCE =====
+    // ===== BALANCE REAL =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -114,8 +105,6 @@ module.exports = async (req,res)=>{
 
     for(const sym of settings.symbols){
 
-      const formatted = formatSymbol(sym);
-
       log(`🔍 Analisar ${sym}`);
 
       const candles = await (await fetch(base+'/api/bitget',{
@@ -123,8 +112,8 @@ module.exports = async (req,res)=>{
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'candles',
-          symbol: formatted,
-          tf:'1min'
+          symbol: sym,
+          tf:'1m'
         })
       })).json();
 
