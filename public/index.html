@@ -3,6 +3,9 @@
 <head>
   <title>Trading Desk</title>
 
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     body {
       background:#0f172a;
@@ -25,11 +28,16 @@
       color:white;
       border-radius:6px;
       cursor:pointer;
+      font-weight:bold;
+    }
+
+    canvas {
+      max-height:300px;
     }
 
     #logs {
       font-size:12px;
-      max-height:300px;
+      max-height:250px;
       overflow:auto;
     }
   </style>
@@ -45,7 +53,7 @@
 
 <div class="box">
   <h3>📈 Equity</h3>
-  <div id="equity">loading...</div>
+  <canvas id="chart"></canvas>
 </div>
 
 <div class="box">
@@ -60,23 +68,19 @@
 
 <script>
 
-async function toggle(){
+let chart;
 
-  const r = await fetch('/api/bitget',{
+// ===== BOT =====
+async function toggle(){
+  await fetch('/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'toggleBot' })
   });
-
-  const d = await r.json();
-
-  console.log('BOT:', d);
-
   updateButton();
 }
 
 async function updateButton(){
-
   const r = await fetch('/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -89,37 +93,88 @@ async function updateButton(){
     d.active ? 'DESLIGAR BOT' : 'LIGAR BOT';
 }
 
+// ===== LOAD =====
 async function load(){
 
+  // logs
   try{
     const cron = await (await fetch('/api/cron')).json();
-    document.getElementById('logs').innerHTML =
-      cron.logs?.join('<br>') || 'sem logs';
-  }catch(e){
+    logs.innerHTML = cron.logs?.join('<br>') || 'sem logs';
+  }catch{
     logs.innerHTML = 'erro logs';
   }
 
+  // stats
   try{
     const stats = await (await fetch('/api/stats')).json();
 
-    document.getElementById('history').innerHTML =
-      (stats.trades || []).map(t =>
-        `${t.side} ${t.symbol} (${t.qty})`
-      ).join('<br>') || 'sem trades';
+    // trades
+    history.innerHTML =
+      (stats.trades || [])
+        .map(t => `${t.side} ${t.symbol} (${t.qty})`)
+        .join('<br>') || 'sem trades';
 
-    document.getElementById('equity').innerHTML =
-      (stats.equity || []).map(e =>
-        e.value
-      ).join(' → ') || 'sem dados';
+    // equity chart
+    const equity = stats.equity || [];
 
-  }catch(e){
+    const labels = equity.map(e =>
+      new Date(e.time).toLocaleTimeString()
+    );
+
+    const values = equity.map(e => e.value);
+
+    renderChart(labels, values);
+
+  }catch{
     history.innerHTML = 'erro stats';
-    equity.innerHTML = 'erro stats';
   }
 
   updateButton();
 }
 
+// ===== CHART =====
+function renderChart(labels, data){
+
+  const ctx = document.getElementById('chart');
+
+  if(chart){
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = data;
+    chart.update();
+    return;
+  }
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Equity',
+        data: data,
+        borderWidth: 2,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          labels: { color: 'white' }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: 'white' }
+        },
+        y: {
+          ticks: { color: 'white' }
+        }
+      }
+    }
+  });
+}
+
+// ===== LOOP =====
 setInterval(load, 4000);
 load();
 
