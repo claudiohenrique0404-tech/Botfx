@@ -5,9 +5,13 @@ const { saveTrade, saveEquity } = require('./db');
 let LOGS = [];
 let LAST_TRADE = 0;
 
-const TP = 0.5;   // +0.5%
-const SL = -0.5;  // -0.5%
-const TRAIL = 0.3;
+// 🔥 TRACKING POSIÇÕES
+let TRACKING = {};
+
+// configs profissionais
+const BREAK_EVEN = 0.3;   // %
+const TRAIL_START = 0.5;  // %
+const TRAIL_DIST = 0.3;   // %
 
 function log(msg){
   const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
@@ -53,51 +57,74 @@ module.exports = async (req,res)=>{
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== GERIR POSIÇÕES (🔥 NOVO)
+    // ===== GESTÃO AVANÇADA =====
     for(const p of positions){
 
       const sym = p.symbol;
       const entry = parseFloat(p.openPriceAvg || p.openPrice);
-      const mark = parseFloat(p.markPrice || p.last);
-      const side = p.holdSide; // long / short
+      const price = parseFloat(p.markPrice || p.last);
+      const side = p.holdSide;
 
-      if(!entry || !mark) continue;
+      if(!entry || !price) continue;
 
-      let pnl = 0;
+      let pnl = side === 'long'
+        ? ((price - entry)/entry)*100
+        : ((entry - price)/entry)*100;
 
-      if(side === 'long'){
-        pnl = ((mark - entry)/entry)*100;
-      }else{
-        pnl = ((entry - mark)/entry)*100;
+      log(`📊 ${sym} ${pnl.toFixed(2)}%`);
+
+      // init tracking
+      if(!TRACKING[sym]){
+        TRACKING[sym] = {
+          maxPnL: pnl,
+          breakEven: false
+        };
       }
 
-      log(`📊 ${sym} PnL: ${pnl.toFixed(2)}%`);
+      const t = TRACKING[sym];
 
-      // ===== TAKE PROFIT
-      if(pnl >= TP){
-        log(`💰 TP atingido ${sym}`);
+      // update máximo
+      if(pnl > t.maxPnL){
+        t.maxPnL = pnl;
+      }
 
+      // ===== BREAK EVEN
+      if(pnl >= BREAK_EVEN && !t.breakEven){
+        t.breakEven = true;
+        log(`🟡 BREAK EVEN ATIVO ${sym}`);
+      }
+
+      // ===== STOP LOSS NORMAL
+      if(!t.breakEven && pnl <= -0.5){
+        log(`🛑 STOP LOSS ${sym}`);
         await closePosition(sym, side, base);
+        delete TRACKING[sym];
         continue;
       }
 
-      // ===== STOP LOSS
-      if(pnl <= SL){
-        log(`🛑 SL atingido ${sym}`);
-
+      // ===== BREAK EVEN STOP
+      if(t.breakEven && pnl <= 0){
+        log(`⚖️ BREAK EVEN EXIT ${sym}`);
         await closePosition(sym, side, base);
+        delete TRACKING[sym];
         continue;
       }
 
-      // ===== TRAILING
-      if(pnl > TRAIL){
-        log(`📈 trailing ativo ${sym}`);
+      // ===== TRAILING STOP
+      if(t.maxPnL >= TRAIL_START){
+
+        const trailLevel = t.maxPnL - TRAIL_DIST;
+
+        if(pnl <= trailLevel){
+          log(`📉 TRAILING STOP ${sym}`);
+          await closePosition(sym, side, base);
+          delete TRACKING[sym];
+          continue;
+        }
       }
     }
 
-    // ===== NOVAS ENTRADAS (igual antes, simplificado)
-    // só entra se não houver posição no ativo
-
+    // ===== ENTRADAS =====
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
@@ -147,6 +174,11 @@ module.exports = async (req,res)=>{
 
       log(`🚀 ${signal.side} ${sym}`);
 
+      TRACKING[sym] = {
+        maxPnL: 0,
+        breakEven: false
+      };
+
       await saveTrade({
         symbol:sym,
         side:signal.side,
@@ -167,7 +199,7 @@ module.exports = async (req,res)=>{
   }
 };
 
-// ===== CLOSE POSITION =====
+// ===== CLOSE =====
 async function closePosition(symbol, side, base){
 
   const closeSide = side === 'long' ? 'SELL' : 'BUY';
@@ -179,7 +211,7 @@ async function closePosition(symbol, side, base){
       action:'order',
       symbol,
       side:closeSide,
-      quantity:9999 // fecha tudo
+      quantity:9999
     })
   });
 }
