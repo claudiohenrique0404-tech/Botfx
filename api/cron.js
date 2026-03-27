@@ -1,98 +1,135 @@
-let BOT_LOGS = [];
+let logs = [];
+let lossStreak = 0;
 
 function log(msg){
-  console.log(msg);
-  BOT_LOGS.unshift(`[${new Date().toLocaleTimeString()}] ${msg}`);
-  if(BOT_LOGS.length > 60) BOT_LOGS.pop();
+ logs.unshift(`[${new Date().toLocaleTimeString()}] ${msg}`);
+ if(logs.length>80) logs.pop();
+ console.log(msg);
 }
 
-module.exports = async (req, res) => {
-  try {
+// EMA
+function calcEMA(data, period){
+ let k = 2/(period+1);
+ let ema = data[0];
+ for(let i=1;i<data.length;i++){
+   ema = data[i]*k + ema*(1-k);
+ }
+ return ema;
+}
 
-    const base = process.env.VERCEL_URL
-      ? 'https://' + process.env.VERCEL_URL
-      : '';
+// RSI
+function calcRSI(data, period=14){
+ let gains=0, losses=0;
 
-    // SETTINGS
-    const sRes = await fetch(base + '/api/bitget',{
+ for(let i=data.length-period;i<data.length;i++){
+   const diff = data[i]-data[i-1];
+   if(diff>0) gains+=diff;
+   else losses-=diff;
+ }
+
+ if(losses===0) return 100;
+ let rs = gains/losses;
+ return 100 - (100/(1+rs));
+}
+
+module.exports = async (req,res)=>{
+
+ try{
+
+  const base = 'https://' + process.env.VERCEL_URL;
+
+  const settings = await (await fetch(base+'/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'getSettings'})
+  })).json();
+
+  const positions = await (await fetch(base+'/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'positions'})
+  })).json();
+
+  log(`📊 posições: ${positions.length}/${settings.maxPositions}`);
+
+  if(positions.length>=settings.maxPositions){
+    log('⏸ limite atingido');
+    return res.json({logs});
+  }
+
+  if(lossStreak >= settings.maxLossStreak){
+    log('🛑 bloqueado por perdas');
+    return res.json({logs});
+  }
+
+  for(const sym of settings.symbols){
+
+    const candles = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'getSettings'})
-    });
+      body:JSON.stringify({action:'candles', symbol:sym})
+    })).json();
 
-    const settings = await sRes.json();
+    if(!candles.length) continue;
 
-    log(`⚙️ Lev ${settings.lev}x | Risk ${settings.risk}%`);
+    const closes = candles.map(c=>parseFloat(c[4]));
 
-    // PRICES
-    const pRes = await fetch(base + '/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'allPrices'})
-    });
+    const ema20 = calcEMA(closes.slice(-20),20);
+    const ema50 = calcEMA(closes.slice(-50),50);
+    const rsi = calcRSI(closes);
 
-    const prices = await pRes.json();
+    const trendUp = ema20 > ema50;
 
-    // POSITIONS
-    const posRes = await fetch(base + '/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'positions'})
-    });
+    log(`${sym} EMA20:${ema20.toFixed(2)} EMA50:${ema50.toFixed(2)} RSI:${rsi.toFixed(1)}`);
 
-    const positions = await posRes.json();
+    const last = closes[closes.length-1];
 
-    log(`📊 Posições: ${positions.length}/${settings.maxPositions}`);
+    const size = Math.max(5, 120*(settings.risk/100));
+    const qty = (size/last).toFixed(4);
 
-    if (positions.length >= settings.maxPositions) {
-      log('⏸ Máx posições atingido');
-      return res.json({ok:true, logs: BOT_LOGS});
-    }
+    // LONG
+    if(trendUp && rsi < 35){
+      log(`🚀 LONG ${sym}`);
 
-    for (const sym of settings.symbols) {
-
-      const asset = prices.find(p => p.symbol === sym);
-      if (!asset) continue;
-
-      // MOMENTUM SIMPLES
-      const move = (Math.random() - 0.5) * 2;
-
-      log(`📈 ${sym} move: ${move.toFixed(3)}`);
-
-      if (Math.abs(move) < 0.4) {
-        log(`❌ ${sym} sem força`);
-        continue;
-      }
-
-      // TAMANHO (mínimo 5€)
-      const balance = 120;
-      const tradeSize = Math.max(5, balance * (settings.risk / 100));
-
-      const qty = (tradeSize / asset.price).toFixed(4);
-
-      const side = move > 0 ? 'BUY' : 'SELL';
-
-      log(`🚀 Entrada ${sym} (${side}) size €${tradeSize}`);
-
-      await fetch(base + '/api/bitget',{
+      await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'order',
           symbol:sym,
-          side,
+          side:'BUY',
           quantity:qty
         })
       });
 
-      break; // só 1 trade por ciclo (consistência)
-
+      break;
     }
 
-    return res.json({ok:true, logs: BOT_LOGS});
+    // SHORT
+    if(!trendUp && rsi > 65){
+      log(`🔻 SHORT ${sym}`);
 
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({error:e.message});
+      await fetch(base+'/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'order',
+          symbol:sym,
+          side:'SELL',
+          quantity:qty
+        })
+      });
+
+      break;
+    }
+
+    log(`❌ sem entrada ${sym}`);
   }
+
+  return res.json({logs});
+
+ }catch(e){
+  return res.status(500).json({error:e.message});
+ }
+
 };
