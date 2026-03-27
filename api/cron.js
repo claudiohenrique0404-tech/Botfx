@@ -3,8 +3,17 @@ const STRAT = require('./strategies');
 let LOGS = [];
 
 function log(msg){
-  const time = new Date().toLocaleTimeString();
+
+  // 🔥 TIMEZONE FIX (PORTUGAL)
+  const time = new Date().toLocaleTimeString('pt-PT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+
   const entry = `[${time}] ${msg}`;
+
   console.log(entry);
 
   LOGS.unshift(entry);
@@ -19,7 +28,6 @@ function atr(data){
   return sum/data.length;
 }
 
-// 🔥 EXECUÇÃO REAL COM VALIDAÇÃO
 async function executeOrder(base, symbol, side, qty){
 
   const r = await fetch(base+'/api/bitget',{
@@ -35,14 +43,12 @@ async function executeOrder(base, symbol, side, qty){
 
   const data = await r.json();
 
-  // 🔥 VALIDAR RESPOSTA REAL
   if(!data || data.code !== '00000'){
     log(`❌ ERRO ORDEM ${symbol}: ${JSON.stringify(data)}`);
     return false;
   }
 
   log(`✅ ORDEM REAL EXECUTADA ${symbol}`);
-
   return true;
 }
 
@@ -52,7 +58,6 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
