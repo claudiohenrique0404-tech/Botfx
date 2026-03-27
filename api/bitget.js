@@ -11,6 +11,11 @@ let BOT_SETTINGS = {
   maxPositions: 2
 };
 
+// 🔥 CONVERTER SYMBOL PARA FUTURES
+function formatSymbol(sym){
+  return sym + '_UMCBL';
+}
+
 // ===== SIGN =====
 function sign(ts, method, path, body, secret) {
   return createHmac('sha256', secret)
@@ -66,10 +71,12 @@ module.exports = async (req, res) => {
       return res.json(d.data || []);
     }
 
-    // ===== CANDLES (🔥 FIX REAL) =====
+    // ===== CANDLES (🔥 FIX FINAL) =====
     if (action === 'candles') {
 
-      const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=USDT-FUTURES&granularity=${p.tf}&limit=100`;
+      const symbol = formatSymbol(p.symbol);
+
+      const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${p.tf}&limit=100`;
 
       const r = await fetch(url);
       const d = await r.json();
@@ -89,8 +96,10 @@ module.exports = async (req, res) => {
     // ===== ORDER =====
     if (action === 'order') {
 
+      const symbol = formatSymbol(p.symbol);
+
       const body = JSON.stringify({
-        symbol: p.symbol,
+        symbol: symbol,
         productType: 'USDT-FUTURES',
         marginCoin: 'USDT',
         side: p.side === 'BUY' ? 'buy' : 'sell',
