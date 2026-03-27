@@ -2,7 +2,7 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Bot PRO Consistente</title>
+<title>Bot Hedge Fund</title>
 
 <style>
 body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
@@ -13,7 +13,12 @@ input{margin:5px}
 
 <body>
 
-<h2>🤖 Bot Consistente PRO</h2>
+<h2>🏦 Bot Hedge Fund</h2>
+
+<div class="box">
+<h3>💰 Balance</h3>
+<div id="balance"></div>
+</div>
 
 <div class="box">
 <h3>⚙️ Settings</h3>
@@ -37,13 +42,12 @@ Ativos:
 
 <script>
 
-async function load(){
+async function loadSettings(){
  const r = await fetch('/api/bitget',{
-   method:'POST',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({action:'getSettings'})
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({action:'getSettings'})
  });
-
  const s = await r.json();
 
  risk.value=s.risk;
@@ -55,36 +59,47 @@ async function load(){
 }
 
 async function save(){
-
  await fetch('/api/bitget',{
-   method:'POST',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({
-     action:'setSettings',
-     risk:parseFloat(risk.value),
-     lev:parseFloat(lev.value),
-     tpDollar:parseFloat(tp.value),
-     slDollar:parseFloat(sl.value),
-     maxPositions:parseInt(maxp.value),
-     symbols:symbols.value.split(',')
-   })
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({
+    action:'setSettings',
+    risk:parseFloat(risk.value),
+    lev:parseFloat(lev.value),
+    tpDollar:parseFloat(tp.value),
+    slDollar:parseFloat(sl.value),
+    maxPositions:parseInt(maxp.value),
+    symbols:symbols.value.split(',')
+  })
  });
-
  alert('Guardado');
 }
 
-async function logs(){
- const r = await fetch('/api/cron');
+async function loadBalance(){
+ const r = await fetch('/api/bitget',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({action:'balance'})
+ });
  const d = await r.json();
-
- if(d.logs){
-   document.getElementById('logs').innerHTML =
-     d.logs.map(l=>`<div>${l}</div>`).join('');
+ if(d[0]){
+  balance.innerText = 'USDT: ' + parseFloat(d[0].available).toFixed(2);
  }
 }
 
-setInterval(logs,5000);
-load();
+async function loadLogs(){
+ const r = await fetch('/api/cron');
+ const d = await r.json();
+ if(d.logs){
+  logs.innerHTML = d.logs.map(l=>`<div>${l}</div>`).join('');
+ }
+}
+
+setInterval(loadLogs,5000);
+setInterval(loadBalance,10000);
+
+loadSettings();
+loadBalance();
 
 </script>
 
