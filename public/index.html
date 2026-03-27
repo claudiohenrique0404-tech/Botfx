@@ -1,181 +1,130 @@
-const STRAT = require('./strategies');
-const { addTrade, getMetrics } = require('./state');
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<title>Trading Desk</title>
 
-let botStats = {
-  trendBot: { score: 1, capital: 0.33 },
-  rsiBot: { score: 1, capital: 0.33 },
-  momentumBot: { score: 1, capital: 0.34 }
-};
-
-let LOGS = [];
-
-function log(msg){
-  const time = new Date().toLocaleTimeString();
-  const entry = `[${time}] ${msg}`;
-
-  console.log(entry);
-
-  LOGS.unshift(entry);
-  if(LOGS.length > 80) LOGS.pop();
+<style>
+body{
+  background:#0f172a;
+  color:#e2e8f0;
+  font-family:Arial;
+  padding:20px;
 }
 
-// ===== NORMALIZE =====
-function normalize(){
-  const total = Object.values(botStats).reduce((a,b)=>a+b.score,0);
-  for(const b in botStats){
-    botStats[b].capital = botStats[b].score / total;
-  }
+h2{
+  margin-bottom:20px;
 }
 
-// ===== ATR =====
-function atr(data){
-  let sum=0;
-  for(let i=1;i<data.length;i++){
-    sum += Math.abs(data[i]-data[i-1]);
-  }
-  return sum/data.length;
+.box{
+  background:#1e293b;
+  padding:15px;
+  margin-bottom:15px;
+  border-radius:10px;
+  box-shadow:0 0 10px rgba(0,0,0,0.3);
 }
 
-// ===== EXECUTION =====
-async function executeOrder(base, symbol, side, qty, closes){
-
-  const move = Math.abs((closes.at(-1)-closes.at(-2))/closes.at(-2));
-
-  if(move > 0.005){
-    log(`❌ ${symbol} slippage alto (${(move*100).toFixed(2)}%)`);
-    return false;
-  }
-
-  const part = (qty/2).toFixed(4);
-
-  for(let i=0;i<2;i++){
-
-    await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        action:'order',
-        symbol,
-        side,
-        quantity:part
-      })
-    });
-
-    log(`📦 ${symbol} ordem parcial ${i+1}`);
-
-    await new Promise(r=>setTimeout(r,500));
-  }
-
-  return true;
+.logs{
+  max-height:300px;
+  overflow-y:auto;
+  font-size:12px;
+  background:#020617;
+  padding:10px;
+  border-radius:8px;
+  font-family:monospace;
 }
 
-// ===== MAIN =====
-module.exports = async (req,res)=>{
+.log-entry{
+  margin-bottom:4px;
+  opacity:0.9;
+}
 
-  try{
+.green{ color:#22c55e; }
+.red{ color:#ef4444; }
+.yellow{ color:#facc15; }
+.blue{ color:#38bdf8; }
 
-    if(req.method === 'HEAD' || req.method === 'GET'){
-      log('🌐 Trigger UptimeRobot');
-    }
+</style>
+</head>
 
-    const base = process.env.VERCEL_URL
-      ? 'https://' + process.env.VERCEL_URL
-      : '';
+<body>
 
-    const settings = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'getSettings'})
-    })).json();
+<h2>🏦 Trading Desk</h2>
 
-    normalize();
+<div class="box">
+<h3>📊 Performance</h3>
+<div id="perf">A carregar...</div>
+</div>
 
-    for(const sym of settings.symbols){
+<div class="box">
+<h3>🤖 Bots</h3>
+<div id="bots">A carregar...</div>
+</div>
 
-      log(`🔍 Analisar ${sym}`);
+<div class="box">
+<h3>📜 Logs (tempo real)</h3>
+<div id="logs" class="logs">A carregar...</div>
+</div>
 
-      const candles = await (await fetch(base+'/api/bitget',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({action:'candles',symbol:sym,tf:'1m'})
-      })).json();
+<script>
 
-      if(!candles.length){
-        log(`⚠️ ${sym} sem dados`);
-        continue;
-      }
+function colorLog(line){
 
-      const closes = candles.map(c=>+c[4]);
+  if(line.includes('💰')) return `<div class="log-entry green">${line}</div>`;
+  if(line.includes('❌') || line.includes('ERRO')) return `<div class="log-entry red">${line}</div>`;
+  if(line.includes('⚠️')) return `<div class="log-entry yellow">${line}</div>`;
+  if(line.includes('🎯') || line.includes('🗳️')) return `<div class="log-entry blue">${line}</div>`;
 
-      const signals = {
-        trendBot: STRAT.trendBot(closes),
-        rsiBot: STRAT.rsiBot(closes),
-        momentumBot: STRAT.momentumBot(closes)
-      };
+  return `<div class="log-entry">${line}</div>`;
+}
 
-      log(`🤖 Signals: ${JSON.stringify(signals)}`);
+async function load(){
 
-      let votes = { BUY:0, SELL:0 };
+ try{
+  const r = await fetch('/api/cron');
+  const d = await r.json();
 
-      for(const b in signals){
-        if(signals[b]){
-          votes[signals[b].side] += botStats[b].capital;
-        }
-      }
-
-      log(`🗳️ Votos → BUY:${votes.BUY.toFixed(2)} SELL:${votes.SELL.toFixed(2)}`);
-
-      let side = null;
-
-      if(votes.BUY > votes.SELL && votes.BUY > 0.5) side='BUY';
-      if(votes.SELL > votes.BUY && votes.SELL > 0.5) side='SELL';
-
-      if(!side){
-        log(`❌ ${sym} sem consenso`);
-        continue;
-      }
-
-      log(`🎯 Decisão: ${side} ${sym}`);
-
-      const vol = atr(closes.slice(-20));
-      const baseRisk = 120*(settings.risk/100);
-
-      const size = Math.max(5, baseRisk/(vol || 1));
-      const qty = (size/closes.at(-1)).toFixed(4);
-
-      log(`⚖️ size:${size.toFixed(2)} vol:${vol.toFixed(4)}`);
-
-      const executed = await executeOrder(base, sym, side, qty, closes);
-
-      if(!executed){
-        log(`⏭️ ${sym} trade cancelado`);
-        continue;
-      }
-
-      const pnl = (Math.random()-0.45)*2;
-      addTrade(pnl);
-
-      log(`💰 Resultado: ${pnl.toFixed(2)}`);
-
-      break;
-    }
-
-    return res.status(200).json({
-      ok:true,
-      metrics: getMetrics(),
-      bots: botStats,
-      logs: LOGS
-    });
-
-  }catch(e){
-
-    log(`🔥 ERRO: ${e.message}`);
-
-    return res.status(200).json({
-      ok:false,
-      error:e.message,
-      logs: LOGS
-    });
+  // ===== PERFORMANCE =====
+  if(d.metrics){
+    perf.innerHTML = `
+      Trades: ${d.metrics.trades}<br>
+      Winrate: ${d.metrics.winrate}%<br>
+      PnL: ${d.metrics.pnl}<br>
+      Equity: ${d.metrics.equity}<br>
+      Drawdown: ${d.metrics.drawdown}%
+    `;
   }
 
-};
+  // ===== BOTS =====
+  if(d.bots){
+    bots.innerHTML = Object.entries(d.bots)
+      .map(([k,v])=>`
+        ${k} → ${(v.capital*100).toFixed(1)}%
+      `)
+      .join('<br>');
+  }
+
+  // ===== LOGS =====
+  if(d.logs && d.logs.length){
+    logs.innerHTML = d.logs.map(colorLog).join('');
+
+    // auto scroll para baixo
+    logs.scrollTop = 0;
+  } else {
+    logs.innerHTML = 'Sem logs ainda...';
+  }
+
+ }catch(e){
+  logs.innerHTML = 'Erro ao carregar dados...';
+ }
+
+}
+
+// update contínuo
+setInterval(load,5000);
+load();
+
+</script>
+
+</body>
+</html>
