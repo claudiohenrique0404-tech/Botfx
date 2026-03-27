@@ -74,13 +74,13 @@ module.exports = async (req,res)=>{
 
   try{
 
+    // 🔥 COMPATÍVEL COM UPTIMEROBOT
     if(req.method === 'HEAD' || req.method === 'GET'){
       log('🌐 Trigger UptimeRobot');
     }
 
-    const base = process.env.VERCEL_URL
-      ? 'https://' + process.env.VERCEL_URL
-      : '';
+    // 🔥 FIX CRÍTICO (ANTES DAVA ERRO <)
+    const base = 'https://botfx-blush.vercel.app';
 
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
@@ -152,6 +152,7 @@ module.exports = async (req,res)=>{
         continue;
       }
 
+      // SIMULAÇÃO (depois podemos ligar ao real)
       const pnl = (Math.random()-0.45)*2;
       addTrade(pnl);
 
