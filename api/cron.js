@@ -5,6 +5,20 @@ const { saveTrade, saveEquity } = require('./db');
 let LOGS = [];
 let LAST_TRADE = 0;
 
+// 🔥 RISK CONTROL
+let DAILY_START = null;
+let DAILY_PNL = 0;
+const MAX_DAILY_LOSS = -3; // -3%
+const MAX_POSITIONS = 3;
+
+// mínimos por ativo
+const MIN_QTY = {
+  BTCUSDT: 0.001,
+  ETHUSDT: 0.01,
+  SOLUSDT: 0.1,
+  XRPUSDT: 10
+};
+
 function log(msg){
   const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
   const entry = `[${time}] ${msg}`;
@@ -14,13 +28,33 @@ function log(msg){
   if(LOGS.length > 100) LOGS.pop();
 }
 
-// 🔥 mínimos por ativo (CRÍTICO)
-const MIN_QTY = {
-  BTCUSDT: 0.001,
-  ETHUSDT: 0.01,
-  SOLUSDT: 0.1,
-  XRPUSDT: 10
-};
+// ===== VOTING SYSTEM =====
+function getConsensus(closes){
+
+  const signals = {
+    trend: STRAT.trendBot(closes),
+    rsi: STRAT.rsiBot(closes),
+    momentum: STRAT.momentumBot(closes)
+  };
+
+  let buy = 0;
+  let sell = 0;
+
+  for(const k in signals){
+    const s = signals[k];
+    if(!s) continue;
+
+    if(s.side === 'BUY') buy += s.confidence;
+    if(s.side === 'SELL') sell += s.confidence;
+  }
+
+  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
+
+  if(buy > sell && buy >= 1.2) return 'BUY';
+  if(sell > buy && sell >= 1.2) return 'SELL';
+
+  return null;
+}
 
 module.exports = async (req,res)=>{
 
@@ -28,6 +62,7 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
+    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -48,7 +83,18 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 Balance: ${balance.toFixed(2)}`);
+    // init daily tracking
+    if(!DAILY_START) DAILY_START = balance;
+
+    DAILY_PNL = ((balance - DAILY_START)/DAILY_START)*100;
+
+    log(`💰 Balance: ${balance.toFixed(2)} | PnL diário: ${DAILY_PNL.toFixed(2)}%`);
+
+    // ===== KILL SWITCH =====
+    if(DAILY_PNL <= MAX_DAILY_LOSS){
+      log('🛑 KILL SWITCH ATIVO');
+      return res.json({logs:LOGS});
+    }
 
     // ===== POSITIONS =====
     const positions = await (await fetch(base+'/api/bitget',{
@@ -61,7 +107,7 @@ module.exports = async (req,res)=>{
 
     log(`📊 Posições abertas: ${openSymbols.length}`);
 
-    if(openSymbols.length >= 3){
+    if(openSymbols.length >= MAX_POSITIONS){
       log('⛔ Máx posições atingido');
       return res.json({logs:LOGS});
     }
@@ -93,51 +139,52 @@ module.exports = async (req,res)=>{
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
 
+      // ===== ML FILTER =====
       const ml = ML.optimize(closes);
 
-      log(`🧠 winrate ${ml.winrate.toFixed(2)}`);
+      log(`🧠 ML winrate ${ml.winrate.toFixed(2)}`);
 
       if(ml.winrate < 0.55){
         log('🧠 bloqueado');
         continue;
       }
 
-      const signal = STRAT.trendBot(closes);
+      // ===== CONSENSUS =====
+      const side = getConsensus(closes);
 
-      if(!signal){
-        log('❌ sem sinal');
+      if(!side){
+        log('❌ sem consenso');
         continue;
       }
 
+      // ===== COOLDOWN =====
       const now = Date.now();
 
-      if(now - LAST_TRADE < 8000){
+      if(now - LAST_TRADE < 10000){
         log('⏱ cooldown ativo');
         continue;
       }
 
-      // ===== SIZE =====
-      const riskUSD = balance * 0.02;
+      // ===== POSITION SIZE =====
+      const riskUSD = balance * 0.01;
       let qty = riskUSD / price;
 
-      // 🔥 FORÇA MÍNIMO
       if(qty < MIN_QTY[sym]){
         qty = MIN_QTY[sym];
-        log(`⚠️ ajustado mínimo ${qty}`);
       }
 
       qty = Number(qty.toFixed(4));
 
-      log(`⚖️ qty:${qty}`);
+      log(`⚖️ ${sym} qty:${qty}`);
 
-      // ===== ORDER =====
+      // ===== EXECUTE =====
       const r = await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'order',
           symbol:sym,
-          side:signal.side,
+          side,
           quantity:qty
         })
       });
@@ -145,17 +192,17 @@ module.exports = async (req,res)=>{
       const data = await r.json();
 
       if(data.code !== '00000'){
-        log(`❌ ERRO ORDEM: ${data.msg}`);
+        log(`❌ ERRO: ${data.msg}`);
         continue;
       }
 
       LAST_TRADE = Date.now();
 
-      log(`✅ ${signal.side} ${sym}`);
+      log(`✅ ${side} ${sym}`);
 
       await saveTrade({
         symbol:sym,
-        side:signal.side,
+        side,
         qty,
         time:Date.now()
       });
