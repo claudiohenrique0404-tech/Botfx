@@ -1,14 +1,61 @@
 <!DOCTYPE html>
 <html>
+<head>
+  <title>Trading Desk</title>
+  <style>
+    body {
+      background:#0f172a;
+      color:white;
+      font-family:Arial;
+      padding:20px;
+    }
+
+    .box {
+      background:#1e293b;
+      padding:15px;
+      margin-bottom:15px;
+      border-radius:10px;
+    }
+
+    button {
+      padding:10px 20px;
+      border:none;
+      background:#22c55e;
+      color:white;
+      border-radius:6px;
+      cursor:pointer;
+    }
+
+    #logs {
+      font-size:12px;
+      max-height:300px;
+      overflow:auto;
+    }
+  </style>
+</head>
+
 <body>
 
-<h2>Trading Desk</h2>
+<h1>📊 Trading Desk</h1>
 
-<button onclick="toggle()">ON/OFF</button>
+<div class="box">
+  <button onclick="toggle()">ON / OFF BOT</button>
+</div>
 
-<div id="logs"></div>
-<div id="history"></div>
-<div id="equity"></div>
+<div class="box">
+  <h3>📈 Equity</h3>
+  <div id="equity">loading...</div>
+</div>
+
+<div class="box">
+  <h3>📜 Trades</h3>
+  <div id="history">loading...</div>
+</div>
+
+<div class="box">
+  <h3>📡 Logs</h3>
+  <div id="logs">loading...</div>
+</div>
 
 <script>
 
@@ -22,17 +69,42 @@ async function toggle(){
 
 async function load(){
 
-  const stats = await (await fetch('/api/stats')).json();
-  const cron = await (await fetch('/api/cron')).json();
+  try{
 
-  logs.innerHTML = cron.logs.join('<br>');
+    const cronRes = await fetch('/api/cron');
+    const cron = await cronRes.json();
 
-  history.innerHTML = stats.trades.map(t=>`${t.side} ${t.symbol}`).join('<br>');
+    document.getElementById('logs').innerHTML =
+      cron.logs?.join('<br>') || 'sem logs';
 
-  equity.innerHTML = stats.equity.map(e=>e.value).join(' → ');
+  }catch(e){
+    logs.innerHTML = 'erro logs';
+  }
+
+  try{
+
+    const statsRes = await fetch('/api/stats');
+    const stats = await statsRes.json();
+
+    // trades
+    document.getElementById('history').innerHTML =
+      (stats.trades || [])
+        .map(t => `${t.side} ${t.symbol} (${t.qty})`)
+        .join('<br>') || 'sem trades';
+
+    // equity
+    document.getElementById('equity').innerHTML =
+      (stats.equity || [])
+        .map(e => e.value)
+        .join(' → ') || 'sem dados';
+
+  }catch(e){
+    history.innerHTML = 'erro stats';
+    equity.innerHTML = 'erro stats';
+  }
 }
 
-setInterval(load,5000);
+setInterval(load, 4000);
 load();
 
 </script>
