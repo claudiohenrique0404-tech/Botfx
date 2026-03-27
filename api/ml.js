@@ -7,20 +7,18 @@ function simulateStrategy(data){
   for(let i=20;i<data.length;i++){
 
     const slice = data.slice(i-20,i);
-    const price = data[i];
-
     const change = (slice.at(-1)-slice[0])/slice[0];
 
-    let side = null;
+    let side=null;
 
-    if(change > 0.002) side = 'BUY';
-    if(change < -0.002) side = 'SELL';
+    if(change > 0.002) side='BUY';
+    if(change < -0.002) side='SELL';
 
     if(!side) continue;
 
     trades++;
 
-    const result = Math.random(); // simulação simples
+    const result = Math.random();
 
     if(result > 0.5){
       balance += 1;
@@ -36,15 +34,14 @@ function simulateStrategy(data){
   };
 }
 
-// 🔥 OPTIMIZER
 function optimize(data){
 
-  let best = null;
+  let best=null;
 
-  const configs = [
-    {threshold:0.001},
-    {threshold:0.002},
-    {threshold:0.003}
+  const configs=[
+    {t:0.001},
+    {t:0.002},
+    {t:0.003}
   ];
 
   for(const c of configs){
@@ -59,4 +56,4 @@ function optimize(data){
   return best;
 }
 
-module.exports = { simulateStrategy, optimize };
+module.exports = { optimize };
