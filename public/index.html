@@ -2,6 +2,7 @@
 <html>
 <head>
   <title>Trading Desk</title>
+
   <style>
     body {
       background:#0f172a;
@@ -39,7 +40,7 @@
 <h1>📊 Trading Desk</h1>
 
 <div class="box">
-  <button onclick="toggle()">ON / OFF BOT</button>
+  <button id="btn" onclick="toggle()">LIGAR BOT</button>
 </div>
 
 <div class="box">
@@ -60,48 +61,63 @@
 <script>
 
 async function toggle(){
-  await fetch('/api/bitget',{
+
+  const r = await fetch('/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'toggleBot'})
+    body: JSON.stringify({ action:'toggleBot' })
   });
+
+  const d = await r.json();
+
+  console.log('BOT:', d);
+
+  updateButton();
+}
+
+async function updateButton(){
+
+  const r = await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'getSettings' })
+  });
+
+  const d = await r.json();
+
+  document.getElementById('btn').innerText =
+    d.active ? 'DESLIGAR BOT' : 'LIGAR BOT';
 }
 
 async function load(){
 
   try{
-
-    const cronRes = await fetch('/api/cron');
-    const cron = await cronRes.json();
-
+    const cron = await (await fetch('/api/cron')).json();
     document.getElementById('logs').innerHTML =
       cron.logs?.join('<br>') || 'sem logs';
-
   }catch(e){
     logs.innerHTML = 'erro logs';
   }
 
   try{
+    const stats = await (await fetch('/api/stats')).json();
 
-    const statsRes = await fetch('/api/stats');
-    const stats = await statsRes.json();
-
-    // trades
     document.getElementById('history').innerHTML =
-      (stats.trades || [])
-        .map(t => `${t.side} ${t.symbol} (${t.qty})`)
-        .join('<br>') || 'sem trades';
+      (stats.trades || []).map(t =>
+        `${t.side} ${t.symbol} (${t.qty})`
+      ).join('<br>') || 'sem trades';
 
-    // equity
     document.getElementById('equity').innerHTML =
-      (stats.equity || [])
-        .map(e => e.value)
-        .join(' → ') || 'sem dados';
+      (stats.equity || []).map(e =>
+        e.value
+      ).join(' → ') || 'sem dados';
 
   }catch(e){
     history.innerHTML = 'erro stats';
     equity.innerHTML = 'erro stats';
   }
+
+  updateButton();
 }
 
 setInterval(load, 4000);
