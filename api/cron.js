@@ -14,13 +14,20 @@ function log(msg){
   if(LOGS.length > 100) LOGS.pop();
 }
 
+// 🔥 mínimos por ativo (CRÍTICO)
+const MIN_QTY = {
+  BTCUSDT: 0.001,
+  ETHUSDT: 0.01,
+  SOLUSDT: 0.1,
+  XRPUSDT: 10
+};
+
 module.exports = async (req,res)=>{
 
   try{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -54,7 +61,6 @@ module.exports = async (req,res)=>{
 
     log(`📊 Posições abertas: ${openSymbols.length}`);
 
-    // ===== RISK LIMIT =====
     if(openSymbols.length >= 3){
       log('⛔ Máx posições atingido');
       return res.json({logs:LOGS});
@@ -62,7 +68,6 @@ module.exports = async (req,res)=>{
 
     for(const sym of settings.symbols){
 
-      // ❌ evitar duplicar posição
       if(openSymbols.includes(sym)){
         log(`⚠️ Já em posição: ${sym}`);
         continue;
@@ -70,7 +75,6 @@ module.exports = async (req,res)=>{
 
       log(`🔍 ${sym}`);
 
-      // ===== MARKET DATA =====
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -87,8 +91,8 @@ module.exports = async (req,res)=>{
       }
 
       const closes = candles.map(c=>+c[4]);
+      const price = closes.at(-1);
 
-      // ===== ML FILTER =====
       const ml = ML.optimize(closes);
 
       log(`🧠 winrate ${ml.winrate.toFixed(2)}`);
@@ -98,7 +102,6 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      // ===== STRATEGY =====
       const signal = STRAT.trendBot(closes);
 
       if(!signal){
@@ -106,7 +109,6 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      // ===== COOLDOWN =====
       const now = Date.now();
 
       if(now - LAST_TRADE < 8000){
@@ -114,15 +116,21 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      // ===== SIZE CONTROL =====
-      const riskSize = balance * 0.02; // 2% por trade
-      const sizeUSD = Math.max(5, riskSize);
+      // ===== SIZE =====
+      const riskUSD = balance * 0.02;
+      let qty = riskUSD / price;
 
-      const qty = (sizeUSD / closes.at(-1)).toFixed(4);
+      // 🔥 FORÇA MÍNIMO
+      if(qty < MIN_QTY[sym]){
+        qty = MIN_QTY[sym];
+        log(`⚠️ ajustado mínimo ${qty}`);
+      }
 
-      log(`⚖️ size:${sizeUSD.toFixed(2)} qty:${qty}`);
+      qty = Number(qty.toFixed(4));
 
-      // ===== EXECUTION =====
+      log(`⚖️ qty:${qty}`);
+
+      // ===== ORDER =====
       const r = await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -137,7 +145,7 @@ module.exports = async (req,res)=>{
       const data = await r.json();
 
       if(data.code !== '00000'){
-        log(`❌ ERRO ORDEM: ${JSON.stringify(data)}`);
+        log(`❌ ERRO ORDEM: ${data.msg}`);
         continue;
       }
 
@@ -145,7 +153,6 @@ module.exports = async (req,res)=>{
 
       log(`✅ ${signal.side} ${sym}`);
 
-      // ===== SAVE =====
       await saveTrade({
         symbol:sym,
         side:signal.side,
@@ -155,7 +162,7 @@ module.exports = async (req,res)=>{
 
       await saveEquity(balance);
 
-      break; // só 1 trade por ciclo
+      break;
     }
 
     res.json({logs:LOGS});
