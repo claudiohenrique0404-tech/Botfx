@@ -6,12 +6,11 @@ const { buildFeatures } = require('./features');
 let LOGS = [];
 let LAST_TRADE = 0;
 
-// ===== TRACKING =====
 let TRACKING = {};
 
 const BREAK_EVEN = 0.25;
-const PARTIAL_TP = 0.5;
-const TRAIL_START = 0.6;
+const PARTIAL_TP = 0.6;
+const TRAIL_START = 0.8;
 
 function log(msg){
   const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
@@ -55,7 +54,7 @@ module.exports = async (req,res)=>{
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== GESTÃO AVANÇADA =====
+    // ===== GESTÃO =====
     for(const p of positions){
 
       const sym = p.symbol;
@@ -83,76 +82,48 @@ module.exports = async (req,res)=>{
 
       if(pnl > t.maxPnL) t.maxPnL = pnl;
 
-      // ===== PARTIAL TAKE PROFIT
+      // PARTIAL TP
       if(pnl >= PARTIAL_TP && !t.partial){
-        log(`💰 PARTIAL TP ${sym}`);
+        log(`💰 PARTIAL ${sym}`);
         await closePartial(sym, side, base);
         t.partial = true;
       }
 
-      // ===== BREAK EVEN
+      // BREAK EVEN
       if(pnl >= BREAK_EVEN && !t.breakEven){
         t.breakEven = true;
-        log(`🟡 BE ATIVO ${sym}`);
       }
 
-      // ===== STOP LOSS
-      if(!t.breakEven && pnl <= -0.5){
-        log(`🛑 STOP LOSS ${sym}`);
+      // STOP LOSS
+      if(!t.breakEven && pnl <= -0.6){
+        log(`🛑 SL ${sym}`);
         await closeAll(sym, side, base, pnl);
         delete TRACKING[sym];
         continue;
       }
 
-      // ===== BREAK EVEN EXIT
+      // BE EXIT
       if(t.breakEven && pnl <= 0){
-        log(`⚖️ BE EXIT ${sym}`);
+        log(`⚖️ BE ${sym}`);
         await closeAll(sym, side, base, pnl);
         delete TRACKING[sym];
         continue;
       }
 
-      // ===== TRAILING DINÂMICO
+      // TRAILING MAIS AGRESSIVO
       if(t.maxPnL >= TRAIL_START){
 
-        let dynamicTrail = 0.3;
+        let trail = 0.4;
 
-        if(t.maxPnL > 1) dynamicTrail = 0.5;
-        if(t.maxPnL > 2) dynamicTrail = 0.8;
+        if(t.maxPnL > 1.5) trail = 0.6;
+        if(t.maxPnL > 3) trail = 1;
 
-        const trailLevel = t.maxPnL - dynamicTrail;
-
-        if(pnl <= trailLevel){
-          log(`📉 TRAIL EXIT ${sym}`);
+        if(pnl <= t.maxPnL - trail){
+          log(`📉 TRAIL ${sym}`);
           await closeAll(sym, side, base, pnl);
           delete TRACKING[sym];
           continue;
         }
-      }
-
-      // ===== REVERSÃO DE TENDÊNCIA
-      const candles = await (await fetch(base+'/api/bitget',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          action:'candles',
-          symbol:sym,
-          tf:'1m'
-        })
-      })).json();
-
-      const closes = candles.map(c=>+c[4]);
-
-      const signal = STRAT.trendBot(closes);
-
-      if(signal && (
-        (side === 'long' && signal.side === 'SELL') ||
-        (side === 'short' && signal.side === 'BUY')
-      )){
-        log(`🔄 REVERSÃO ${sym}`);
-        await closeAll(sym, side, base, pnl);
-        delete TRACKING[sym];
-        continue;
       }
     }
 
@@ -180,8 +151,9 @@ module.exports = async (req,res)=>{
 
       const prediction = await MLAPI.getPrediction(features);
 
-      if(!prediction || prediction.confidence < 0.65){
-        log('🧠 ML bloqueou');
+      // 🔥 FILTRO MAIS FORTE
+      if(!prediction || prediction.confidence < 0.7){
+        log('🧠 bloqueado');
         continue;
       }
 
@@ -189,9 +161,19 @@ module.exports = async (req,res)=>{
       if(!signal) continue;
 
       const now = Date.now();
-      if(now - LAST_TRADE < 8000) continue;
 
-      const qty = (Math.max(5, balance*0.01)/price).toFixed(4);
+      // 🔥 MAIS OPORTUNIDADES
+      if(now - LAST_TRADE < 5000) continue;
+
+      // 🔥 TAMANHO DINÂMICO
+      let risk = 0.01;
+
+      if(prediction.confidence > 0.8) risk = 0.02;
+      if(prediction.confidence > 0.9) risk = 0.03;
+
+      const qty = ((balance * risk)/price).toFixed(4);
+
+      log(`⚖️ risk:${risk} conf:${prediction.confidence.toFixed(2)}`);
 
       await fetch(base+'/api/bitget',{
         method:'POST',
