@@ -12,6 +12,15 @@
     nav button{background:none;border:none;color:#94a3b8;cursor:pointer}
     .tab{display:none;padding:20px}
     .box{background:#1e293b;padding:15px;margin:10px;border-radius:10px}
+    .btn{
+      padding:10px 15px;
+      border:none;
+      border-radius:5px;
+      font-weight:bold;
+      cursor:pointer;
+    }
+    .on{background:#22c55e;color:#000}
+    .off{background:#ef4444;color:#000}
     canvas{background:#fff;border-radius:10px}
   </style>
 </head>
@@ -28,6 +37,13 @@
 
 <div id="dashboard" class="tab">
 
+  <div class="box">
+    🤖 Estado do Bot:
+    <span id="botStatus">...</span>
+    <br><br>
+    <button id="toggleBtn" class="btn" onclick="toggleBot()">...</button>
+  </div>
+
   <div class="box">💰 Balance: <span id="balance"></span></div>
   <div class="box">📊 PnL: <span id="pnl"></span></div>
   <div class="box">🎯 Winrate: <span id="winrate"></span></div>
@@ -37,28 +53,22 @@
 </div>
 
 <div id="performance" class="tab">
-
   <div class="box">
     <canvas id="equityChart"></canvas>
   </div>
-
 </div>
 
 <div id="bots" class="tab">
-
   <div class="box">
     <h3>🤖 Ranking Bots</h3>
     <pre id="botsData"></pre>
   </div>
-
 </div>
 
 <div id="logs" class="tab">
-
   <div class="box">
     <pre id="logs"></pre>
   </div>
-
 </div>
 
 <script>
@@ -70,11 +80,47 @@ function showTab(id){
   document.getElementById(id).style.display='block';
 }
 
+// 🔥 TOGGLE BOT
+async function toggleBot(){
+  await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'toggleBot'})
+  });
+}
+
+// 🔥 LOAD DATA
 async function load(){
 
+  // ===== SETTINGS (estado do bot)
+  const settings = await (await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'getSettings'})
+  })).json();
+
+  const status = settings.active;
+
+  const statusEl = document.getElementById('botStatus');
+  const btn = document.getElementById('toggleBtn');
+
+  if(status){
+    statusEl.innerText = 'ATIVO';
+    statusEl.style.color = '#22c55e';
+
+    btn.innerText = 'DESLIGAR BOT';
+    btn.className = 'btn off';
+  }else{
+    statusEl.innerText = 'DESLIGADO';
+    statusEl.style.color = '#ef4444';
+
+    btn.innerText = 'LIGAR BOT';
+    btn.className = 'btn on';
+  }
+
+  // ===== STATS
   const stats = await (await fetch('/api/stats')).json();
 
-  // METRICS
   document.getElementById('winrate').innerText =
     (stats.winrate*100).toFixed(2)+'%';
 
@@ -84,11 +130,10 @@ async function load(){
   document.getElementById('sharpe').innerText =
     stats.sharpe.toFixed(2);
 
-  // BOT RANKING
   document.getElementById('botsData').innerText =
     JSON.stringify(stats.botRanking,null,2);
 
-  // EQUITY CHART
+  // ===== EQUITY CHART
   const labels = stats.equity.map(e=>new Date(e.time).toLocaleTimeString());
   const data = stats.equity.map(e=>e.value);
 
@@ -105,12 +150,12 @@ async function load(){
     }
   });
 
-  // LOGS
+  // ===== LOGS
   const logs = await (await fetch('/api/cron')).json();
   document.getElementById('logs').innerText =
     logs.logs.join('\n');
 
-  // BALANCE
+  // ===== BALANCE
   const bal = await (await fetch('/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -122,7 +167,7 @@ async function load(){
   document.getElementById('balance').innerText =
     '$'+balance.toFixed(2);
 
-  // PNL
+  // ===== PNL
   if(stats.equity.length){
     const start = stats.equity[0].value;
     const last = stats.equity.at(-1).value;
