@@ -3,14 +3,19 @@ const BRAIN = require('./brain');
 
 module.exports = async (req,res)=>{
 
-  const { symbol, pnl, bots=[] } = req.body;
+  try{
 
-  updateTradeResult(symbol, pnl);
+    const { symbol, pnl, bots=[] } = req.body;
 
-  // 🔥 RL UPDATE
-  for(const b of bots){
-    BRAIN.updateBot(b, pnl);
+    updateTradeResult(symbol, pnl);
+
+    for(const b of bots){
+      BRAIN.updateBot(b, pnl);
+    }
+
+    res.json({ok:true});
+
+  }catch(e){
+    res.status(500).json({error:e.message});
   }
-
-  res.json({ok:true});
 };
