@@ -1,47 +1,70 @@
-let trades = [];
-let equity = [];
-let dataset = [];
+const { Redis } = require("@upstash/redis");
 
-function saveTrade(t){
-  trades.push(t);
+// 🔥 fallback memória
+let memory = {
+  trades: [],
+  equity: []
+};
 
-  dataset.push({
-    features: t.features,
-    result: null // ainda não sabemos resultado
+let redis = null;
+
+if(process.env.UPSTASH_REDIS_REST_URL){
+  redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
   });
-
-  if(trades.length > 500) trades.shift();
 }
 
-function updateTradeResult(symbol, pnl){
+// ===== SAVE =====
 
-  const item = dataset.find(d => !d.result);
+async function saveTrade(trade){
 
-  if(item){
-    item.result = pnl > 0 ? 1 : 0;
+  if(redis){
+    await redis.lpush("trades", JSON.stringify(trade));
+  }else{
+    memory.trades.unshift(trade);
   }
 }
 
-function getDataset(){
-  return dataset.filter(d => d.result !== null);
-}
+async function saveEquity(value){
 
-function saveEquity(e){
-  equity.push({value:e,time:Date.now()});
-  if(equity.length > 500) equity.shift();
-}
-
-function getStats(){
-  return {
-    trades,
-    equity
+  const data = {
+    value,
+    time: Date.now()
   };
+
+  if(redis){
+    await redis.lpush("equity", JSON.stringify(data));
+  }else{
+    memory.equity.unshift(data);
+  }
+}
+
+// ===== GET =====
+
+async function getTrades(){
+
+  if(redis){
+    const data = await redis.lrange("trades", 0, 50);
+    return data.map(JSON.parse);
+  }
+
+  return memory.trades;
+}
+
+async function getEquity(){
+
+  if(redis){
+    const data = await redis.lrange("equity", 0, 100);
+    return data.map(JSON.parse);
+  }
+
+  return memory.equity;
 }
 
 module.exports = {
   saveTrade,
   saveEquity,
-  getStats,
-  getDataset,
-  updateTradeResult
+  getTrades,
+  getEquity
 };
