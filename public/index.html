@@ -3,9 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <title>Bot PRO</title>
+
 <style>
-body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
-.box{background:#1e293b;padding:15px;margin-bottom:15px;border-radius:10px}
+body { background:#0f172a; color:#fff; font-family:Arial; padding:20px; }
+.box { background:#1e293b; padding:15px; margin-bottom:15px; border-radius:10px; }
+.green{color:#22c55e;} .red{color:#ef4444;}
+input{width:80px;margin:5px;}
 </style>
 </head>
 
@@ -14,7 +17,7 @@ body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
 <h2>🚀 Bot Control</h2>
 
 <div class="box">
-<h3>Settings</h3>
+<h3>⚙️ Settings</h3>
 
 Risco % <input id="risk"><br>
 Leverage <input id="lev"><br>
@@ -23,40 +26,111 @@ Leverage <input id="lev"><br>
 </div>
 
 <div class="box">
-<h3>Métricas</h3>
+<h3>📊 Métricas</h3>
 <div id="metrics"></div>
+</div>
+
+<div class="box">
+<h3>📈 Histórico</h3>
+<div id="trades"></div>
 </div>
 
 <script>
 
-async function load(){
- const r = await fetch('/api/bitget',{
-   method:'POST',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({action:'getSettings'})
- });
+const S = {
+  trades: []
+};
 
- const s = await r.json();
+// LOAD SETTINGS
+async function loadSettings() {
+  const r = await fetch('/api/bitget', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'getSettings'})
+  });
 
- risk.value=s.risk;
- lev.value=s.lev;
+  const s = await r.json();
+
+  risk.value = s.risk;
+  lev.value = s.lev;
 }
 
-async function save(){
- await fetch('/api/bitget',{
-   method:'POST',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({
-     action:'setSettings',
-     risk:parseFloat(risk.value),
-     lev:parseFloat(lev.value)
-   })
- });
+// SAVE SETTINGS
+async function save() {
+  await fetch('/api/bitget', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      action:'setSettings',
+      risk:parseFloat(risk.value),
+      lev:parseFloat(lev.value)
+    })
+  });
 
- alert('Atualizado');
+  alert('Atualizado');
 }
 
-load();
+// LOAD HISTORY REAL
+async function loadHistory() {
+
+  const r = await fetch('/api/bitget', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'history'})
+  });
+
+  const data = await r.json();
+
+  if (!Array.isArray(data)) return;
+
+  S.trades = data.map(t => ({
+    symbol: t.symbol,
+    pnl: parseFloat(t.totalProfits || 0)
+  }));
+
+  render();
+}
+
+// MÉTRICAS
+function calcMetrics() {
+  const wins = S.trades.filter(t => t.pnl > 0).length;
+  const total = S.trades.length;
+  const pnl = S.trades.reduce((a,b)=>a+b.pnl,0);
+
+  return {
+    total,
+    winrate: total ? ((wins/total)*100).toFixed(1) : 0,
+    pnl
+  };
+}
+
+// RENDER
+function render() {
+
+  const m = calcMetrics();
+
+  document.getElementById('metrics').innerHTML = `
+    Total: ${m.total}<br>
+    Winrate: ${m.winrate}%<br>
+    PnL: <span class="${m.pnl>=0?'green':'red'}">${m.pnl.toFixed(2)}</span>
+  `;
+
+  document.getElementById('trades').innerHTML =
+    S.trades.slice(0,20).map(t => `
+      <div>
+        ${t.symbol} |
+        <span class="${t.pnl>=0?'green':'red'}">
+          ${t.pnl.toFixed(2)}
+        </span>
+      </div>
+    `).join('');
+}
+
+// INIT
+loadSettings();
+loadHistory();
+
+setInterval(loadHistory, 10000);
 
 </script>
 
