@@ -7,48 +7,64 @@ const BRAIN = require('./brain');
 let LOGS=[];
 let LAST_TRADE=0;
 
-function log(m){
+function log(msg){
   const t=new Date().toLocaleTimeString('pt-PT',{hour12:false});
-  const e=`[${t}] ${m}`;
+  const e=`[${t}] ${msg}`;
   console.log(e);
   LOGS.unshift(e);
-  if(LOGS.length>150) LOGS.pop();
+  if(LOGS.length>200) LOGS.pop();
 }
 
-function consensus(closes){
+function analyzeBots(closes){
 
-  const signals=[
-    STRAT.trendBot(closes),
-    STRAT.rsiBot(closes),
-    STRAT.momentumBot(closes)
-  ];
+  const signals={
+    trend: STRAT.trendBot(closes),
+    rsi: STRAT.rsiBot(closes),
+    momentum: STRAT.momentumBot(closes)
+  };
 
-  const weights = BRAIN.getWeights();
+  const weights=BRAIN.getWeights();
+
+  log(`🤖 BOT SIGNALS:`);
+
+  for(const k in signals){
+    const s=signals[k];
+    if(s){
+      log(`${k} → ${s.side} (${s.confidence})`);
+    }else{
+      log(`${k} → null`);
+    }
+  }
+
+  log(`🧠 WEIGHTS:`);
+
+  for(const k in weights){
+    log(`${k}: ${weights[k].toFixed(2)}`);
+  }
 
   let buy=0, sell=0, used=[];
 
-  for(const s of signals){
-
+  for(const k in signals){
+    const s=signals[k];
     if(!s) continue;
 
-    const w = weights[s.bot] || 0.5;
+    const w=weights[k]||0.5;
 
-    if(s.side==='BUY') buy += s.confidence * w;
-    if(s.side==='SELL') sell += s.confidence * w;
+    if(s.side==='BUY') buy+=s.confidence*w;
+    if(s.side==='SELL') sell+=s.confidence*w;
 
-    used.push(s.bot);
+    used.push(k);
   }
 
-  log(`🧠 weights ${JSON.stringify(weights)}`);
-  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
+  log(`🗳️ RESULT → BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
-  if(buy>0.7) return {side:'BUY', bots:used};
-  if(sell>0.7) return {side:'SELL', bots:used};
+  if(buy>0.6) return {side:'BUY',bots:used};
+  if(sell>0.6) return {side:'SELL',bots:used};
 
   return null;
 }
 
-module.exports = async (req,res)=>{
+module.exports=async(req,res)=>{
 
   try{
 
@@ -61,7 +77,7 @@ module.exports = async (req,res)=>{
     })).json();
 
     if(!settings.active){
-      log('⏸ off');
+      log('⏸ BOT OFF');
       return res.json({logs:LOGS});
     }
 
@@ -73,16 +89,19 @@ module.exports = async (req,res)=>{
 
     const balance=parseFloat(balanceData[0]?.available||0);
 
+    log(`💰 Balance: ${balance.toFixed(2)}`);
+
     const positions=await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== ENTRADAS =====
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
+
+      log(`🔍 ANALISAR ${sym}`);
 
       const candles=await (await fetch(base+'/api/bitget',{
         method:'POST',
@@ -94,35 +113,36 @@ module.exports = async (req,res)=>{
         })
       })).json();
 
-      if(!candles.length) continue;
+      if(!candles.length){
+        log('⚠️ sem dados');
+        continue;
+      }
 
       const closes=candles.map(c=>+c[4]);
-      const price=closes.at(-1);
 
       const features=buildFeatures(closes);
 
       const pred=await MLAPI.getPrediction(features);
 
-      if(!pred || pred.confidence<0.7){
-        log('🧠 ML block');
+      if(!pred){
+        log('🧠 ML erro');
         continue;
       }
 
-      const c=consensus(closes);
+      log(`🧠 ML confidence: ${pred.confidence.toFixed(2)}`);
 
-      if(!c){
-        log('❌ no consensus');
+      const decision=analyzeBots(closes);
+
+      if(!decision){
+        log('❌ SEM CONSENSO');
         continue;
       }
 
-      const now=Date.now();
-      if(now-LAST_TRADE<5000) continue;
+      log(`🎯 DECISÃO FINAL: ${decision.side}`);
 
-      let risk=0.01;
+      const price=closes.at(-1);
 
-      if(pred.confidence>0.85) risk=0.02;
-
-      const qty=((balance*risk)/price).toFixed(4);
+      const qty=((balance*0.01)/price).toFixed(4);
 
       await fetch(base+'/api/bitget',{
         method:'POST',
@@ -130,20 +150,20 @@ module.exports = async (req,res)=>{
         body:JSON.stringify({
           action:'order',
           symbol:sym,
-          side:c.side,
+          side:decision.side,
           quantity:qty
         })
       });
 
       LAST_TRADE=Date.now();
 
-      log(`🚀 ${c.side} ${sym}`);
+      log(`🚀 EXECUTADO ${decision.side} ${sym}`);
 
       await saveTrade({
         symbol:sym,
-        side:c.side,
+        side:decision.side,
         qty,
-        bots:c.bots,
+        bots:decision.bots,
         time:Date.now(),
         features
       });
