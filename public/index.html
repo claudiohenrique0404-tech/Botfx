@@ -42,33 +42,26 @@
 </div>
 
 <div id="performance" class="tab">
-  <div class="box">
-    <canvas id="chart"></canvas>
-  </div>
+  <div class="box"><canvas id="chart"></canvas></div>
 </div>
 
 <div id="trades" class="tab">
-  <div class="box">
-    <pre id="tradesData"></pre>
-  </div>
+  <div class="box"><pre id="tradesData"></pre></div>
 </div>
 
 <div id="positions" class="tab">
-  <div class="box">
-    <pre id="positionsData"></pre>
-  </div>
+  <div class="box"><pre id="positionsData"></pre></div>
 </div>
 
 <div id="logs" class="tab">
-  <div class="box">
-    <pre id="logsData"></pre>
-  </div>
+  <div class="box"><pre id="logsData"></pre></div>
 </div>
 
 <script>
 
 let chart;
 let lastRun = 0;
+let isRunning = false;
 
 // ===== NAV
 function showTab(id){
@@ -76,20 +69,32 @@ function showTab(id){
   document.getElementById(id).style.display='block';
 }
 
-// ===== TOGGLE
+// ===== TOGGLE (AGORA ESTÁVEL)
 async function toggleBot(){
+
+  if(isRunning) return;
+
+  isRunning = true;
+
   await fetch('/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'toggleBot'})
   });
+
+  isRunning = false;
 }
 
 // ===== LOAD
 async function load(){
 
+  if(isRunning) return;
+
+  isRunning = true;
+
   try{
 
+    // ===== SETTINGS (PRIMEIRO SEMPRE)
     const s = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -111,10 +116,10 @@ async function load(){
       btn.className = 'btn on';
     }
 
-    // 🔥 EXECUÇÃO CONTROLADA (FIX)
+    // ===== EXECUÇÃO CONTROLADA
     const now = Date.now();
 
-    if(s.active && now - lastRun > 10000){
+    if(s.active && now - lastRun > 8000){
       lastRun = now;
       await fetch('/api/cron');
     }
@@ -161,7 +166,7 @@ async function load(){
     document.getElementById('positionsData').innerText =
       JSON.stringify(pos || [], null, 2);
 
-    // ===== LOGS
+    // ===== LOGS (SEMPRE NO FIM)
     const logs = await (await fetch('/api/cron?mode=logs')).json();
 
     document.getElementById('logsData').innerText =
@@ -170,9 +175,13 @@ async function load(){
   }catch(e){
     console.log('ERROR:', e);
   }
+
+  isRunning = false;
 }
 
-setInterval(load,3000);
+// ===== LOOP MAIS SEGURO
+setInterval(load,4000);
+
 showTab('dashboard');
 
 </script>
