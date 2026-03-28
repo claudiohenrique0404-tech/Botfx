@@ -1,11 +1,11 @@
-async function getPrediction(data){
+async function getPrediction(features){
 
   try{
 
     const r = await fetch('https://ml-api-production-d47c.up.railway.app/predict',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ data })
+      body: JSON.stringify({ data: features })
     });
 
     const d = await r.json();
