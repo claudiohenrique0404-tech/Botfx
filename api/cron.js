@@ -45,7 +45,7 @@ function analyzeBots(closes){
     const s = signals[k];
     if(!s) continue;
 
-    const w = weights[k] || 0.5;
+    const w = weights[k] || 0.6;
 
     if(s.side === 'BUY') buy += s.confidence * w;
     if(s.side === 'SELL') sell += s.confidence * w;
