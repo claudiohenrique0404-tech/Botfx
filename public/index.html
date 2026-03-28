@@ -1,74 +1,56 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Trading Desk</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>Trading Bot</title>
 </head>
 
 <body style="background:#0f172a;color:white;font-family:Arial">
 
-<h2>🤖 Trading Desk</h2>
+<h2>🤖 Trading Bot</h2>
 
 <button onclick="toggleBot()" id="btn">...</button>
-
-<h3>📈 Equity</h3>
-<canvas id="chart"></canvas>
 
 <h3>📡 Logs</h3>
 <pre id="logs"></pre>
 
 <script>
 
-let chart;
-
-// ===== TOGGLE
 async function toggleBot(){
-  await fetch('/api/bitget',{
+  await fetch('/api/core',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'toggleBot'})
   });
 }
 
-// ===== LOAD
 async function load(){
 
-  // SETTINGS
-  const s = await (await fetch('/api/bitget',{
+  // estado
+  const s = await (await fetch('/api/core',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'getSettings'})
   })).json();
 
-  const btn = document.getElementById('btn');
+  document.getElementById('btn').innerText =
+    s.active ? 'DESLIGAR BOT' : 'LIGAR BOT';
 
-  if(s.active){
-    btn.innerText = 'DESLIGAR BOT';
-  }else{
-    btn.innerText = 'LIGAR BOT';
-  }
-
-  // STATS
-  const stats = await (await fetch('/api/stats')).json();
-
-  const labels = stats.equity.map(e=>new Date(e.time).toLocaleTimeString());
-  const data = stats.equity.map(e=>e.value);
-
-  if(chart) chart.destroy();
-
-  chart = new Chart(document.getElementById('chart'),{
-    type:'line',
-    data:{
-      labels,
-      datasets:[{label:'Equity',data}]
-    }
+  // correr bot
+  await fetch('/api/core',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'run'})
   });
 
-  // LOGS (🔥 FIX)
-  const logs = await (await fetch('/api/logs')).json();
+  // logs
+  const logs = await (await fetch('/api/core',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'logs'})
+  })).json();
 
   document.getElementById('logs').innerText =
-    (logs.logs || []).join('\n');
+    logs.join('\n');
 }
 
 setInterval(load,3000);
