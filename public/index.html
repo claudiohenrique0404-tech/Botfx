@@ -52,27 +52,46 @@
 
 let chart;
 let lastRun = 0;
+let loading = false;
+let toggling = false;
 
-// ===== TOGGLE
+// ===== TOGGLE BOT (SEGURO)
 async function toggleBot(){
-  await fetch('/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'toggleBot'})
-  });
+
+  if(toggling) return;
+
+  toggling = true;
+
+  try{
+    await fetch('/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'toggleBot'})
+    });
+  }catch(e){
+    console.log('Toggle error:', e);
+  }
+
+  toggling = false;
 }
 
-// ===== LOAD (SIMPLIFICADO)
+// ===== LOAD LOOP (SEGURO)
 async function load(){
+
+  if(loading) return;
+
+  loading = true;
 
   try{
 
-    // SETTINGS
-    const s = await (await fetch('/api/bitget',{
+    // ===== SETTINGS
+    const sRes = await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'getSettings'})
-    })).json();
+    });
+
+    const s = await sRes.json();
 
     const statusEl = document.getElementById('status');
     const btn = document.getElementById('btn');
@@ -89,67 +108,96 @@ async function load(){
       btn.className = 'btn on';
     }
 
-    // 🔥 EXECUTA BOT CONTROLADO
+    // ===== EXECUÇÃO CONTROLADA DO BOT
     const now = Date.now();
-    if(s.active && now - lastRun > 8000){
+
+    if(s.active && (now - lastRun > 8000)){
       lastRun = now;
-      await fetch('/api/cron');
+
+      try{
+        await fetch('/api/cron');
+      }catch(e){
+        console.log('Cron error:', e);
+      }
     }
 
-    // BALANCE
-    const bal = await (await fetch('/api/bitget',{
+    // ===== BALANCE
+    const balRes = await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'balance'})
-    })).json();
+    });
+
+    const bal = await balRes.json();
+
+    const balance = parseFloat(bal?.[0]?.available || 0);
 
     document.getElementById('balance').innerText =
-      '$'+parseFloat(bal[0]?.available || 0).toFixed(2);
+      '$' + balance.toFixed(2);
 
-    // STATS
-    const stats = await (await fetch('/api/stats')).json();
+    // ===== STATS
+    const statsRes = await fetch('/api/stats');
+    const stats = await statsRes.json();
 
     document.getElementById('winrate').innerText =
-      stats.winrate ? (stats.winrate*100).toFixed(2)+'%' : '0%';
+      stats.winrate ? (stats.winrate * 100).toFixed(2) + '%' : '0%';
 
     document.getElementById('tradesData').innerText =
       JSON.stringify(stats.trades || [], null, 2);
 
+    // ===== EQUITY CHART
     const labels = (stats.equity || []).map(e =>
       new Date(e.time).toLocaleTimeString()
     );
 
     const data = (stats.equity || []).map(e => e.value);
 
-    if(chart) chart.destroy();
+    if(chart){
+      chart.destroy();
+    }
 
     chart = new Chart(document.getElementById('chart'),{
       type:'line',
-      data:{labels,datasets:[{label:'Equity',data}]}
+      data:{
+        labels: labels,
+        datasets: [{
+          label:'Equity',
+          data: data
+        }]
+      }
     });
 
-    // POSITIONS
-    const pos = await (await fetch('/api/bitget',{
+    // ===== POSITIONS
+    const posRes = await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
-    })).json();
+    });
+
+    const pos = await posRes.json();
 
     document.getElementById('positionsData').innerText =
       JSON.stringify(pos || [], null, 2);
 
-    // LOGS (SEM EXECUTAR BOT)
-    const logs = await (await fetch('/api/cron?mode=logs')).json();
+    // ===== LOGS
+    const logsRes = await fetch('/api/cron?mode=logs');
+    const logs = await logsRes.json();
 
     document.getElementById('logsData').innerText =
       (logs.logs || []).join('\n');
 
   }catch(e){
-    console.log('ERROR:', e);
+    console.log('LOAD ERROR:', e);
   }
+
+  loading = false;
 }
 
-setInterval(load,4000);
+// ===== LOOP
+setInterval(load, 4000);
+
+// ===== INIT
+load();
 
 </script>
 
