@@ -1,17 +1,11 @@
 const { updateTradeResult } = require('./db');
-const BRAIN = require('./brain');
 
 module.exports = async (req,res)=>{
 
   try{
-
-    const { symbol, pnl, bots=[] } = req.body;
+    const { symbol, pnl } = req.body;
 
     updateTradeResult(symbol, pnl);
-
-    for(const b of bots){
-      BRAIN.updateBot(b, pnl);
-    }
 
     res.json({ok:true});
 
