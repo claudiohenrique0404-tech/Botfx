@@ -1,65 +1,69 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Trading Desk</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>Bot Debug</title>
 
   <style>
-    body{background:#0f172a;color:white;font-family:Arial;margin:0}
-    header{text-align:center;padding:15px;font-size:22px}
-    .box{background:#1e293b;padding:15px;margin:10px;border-radius:10px}
-    .btn{padding:10px;border:none;font-weight:bold;cursor:pointer}
-    .on{background:#22c55e;color:black}
-    .off{background:#ef4444;color:black}
-    canvas{background:white;border-radius:10px}
-    pre{font-size:12px;white-space:pre-wrap}
+    body{
+      background:#0f172a;
+      color:white;
+      font-family:Arial;
+      margin:0;
+      padding:20px;
+    }
+
+    h2{
+      text-align:center;
+    }
+
+    .box{
+      background:#1e293b;
+      padding:15px;
+      margin:10px 0;
+      border-radius:10px;
+    }
+
+    button{
+      padding:10px;
+      font-weight:bold;
+      cursor:pointer;
+    }
+
+    pre{
+      white-space:pre-wrap;
+      font-size:12px;
+    }
   </style>
 </head>
 
 <body>
 
-<header>🤖 Trading Desk</header>
+<h2>🤖 BOT DEBUG</h2>
 
 <div class="box">
   Estado: <span id="status">...</span><br><br>
-  <button id="btn" class="btn" onclick="toggleBot()">...</button>
-</div>
-
-<div class="box">💰 Balance: <span id="balance">-</span></div>
-<div class="box">📊 Winrate: <span id="winrate">-</span></div>
-
-<div class="box">
-  📈 Equity
-  <canvas id="chart"></canvas>
+  <button onclick="toggleBot()">ON / OFF</button>
 </div>
 
 <div class="box">
-  📜 Trades
-  <pre id="tradesData"></pre>
+  💰 Balance:
+  <pre id="balance">loading...</pre>
 </div>
 
 <div class="box">
-  📊 Posições
-  <pre id="positionsData"></pre>
+  📊 Posições:
+  <pre id="positions">loading...</pre>
 </div>
 
 <div class="box">
-  📡 Logs
-  <pre id="logsData"></pre>
+  📡 Logs:
+  <pre id="logs">loading...</pre>
 </div>
 
 <script>
 
-let chart;
-let lastRun = 0;
-let loading = false;
-let toggling = false;
-
 // ===== TOGGLE
 async function toggleBot(){
-  if(toggling) return;
-  toggling = true;
-
   try{
     await fetch('/api/bitget',{
       method:'POST',
@@ -69,43 +73,22 @@ async function toggleBot(){
   }catch(e){
     console.log(e);
   }
-
-  toggling = false;
 }
 
 // ===== LOAD
 async function load(){
 
-  if(loading) return;
-  loading = true;
-
   try{
 
+    // STATUS
     const s = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'getSettings'})
     })).json();
 
-    const btn = document.getElementById('btn');
-    const status = document.getElementById('status');
-
-    if(s.active){
-      status.innerText='ATIVO';
-      btn.innerText='DESLIGAR BOT';
-      btn.className='btn off';
-    }else{
-      status.innerText='DESLIGADO';
-      btn.innerText='LIGAR BOT';
-      btn.className='btn on';
-    }
-
-    // RUN BOT
-    const now = Date.now();
-    if(s.active && now - lastRun > 8000){
-      lastRun = now;
-      await fetch('/api/cron');
-    }
+    document.getElementById('status').innerText =
+      s.active ? 'ATIVO' : 'DESLIGADO';
 
     // BALANCE
     const bal = await (await fetch('/api/bitget',{
@@ -115,40 +98,7 @@ async function load(){
     })).json();
 
     document.getElementById('balance').innerText =
-      '$'+parseFloat(bal?.[0]?.available||0).toFixed(2);
-
-    // STATS
-    const stats = await (await fetch('/api/stats')).json();
-
-    document.getElementById('winrate').innerText =
-      stats.winrate ? (stats.winrate*100).toFixed(2)+'%' : '0%';
-
-    document.getElementById('tradesData').innerText =
-      JSON.stringify(stats.trades||[],null,2);
-
-    // 🔥 CHART PROTEGIDO
-    try{
-
-      if(window.Chart){
-
-        const labels = (stats.equity||[]).map(e =>
-          new Date(e.time).toLocaleTimeString()
-        );
-
-        const data = (stats.equity||[]).map(e=>e.value);
-
-        if(chart) chart.destroy();
-
-        chart = new Chart(document.getElementById('chart'),{
-          type:'line',
-          data:{labels,datasets:[{label:'Equity',data}]}
-        });
-
-      }
-
-    }catch(e){
-      console.log('Chart error:', e);
-    }
+      JSON.stringify(bal,null,2);
 
     // POSITIONS
     const pos = await (await fetch('/api/bitget',{
@@ -157,34 +107,23 @@ async function load(){
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    document.getElementById('positionsData').innerText =
-      JSON.stringify(pos||[],null,2);
+    document.getElementById('positions').innerText =
+      JSON.stringify(pos,null,2);
 
-  }catch(e){
-    console.log('LOAD ERROR:', e);
-  }
-
-  loading = false;
-}
-
-// ===== LOGS
-async function loadLogs(){
-  try{
+    // LOGS
     const logs = await (await fetch('/api/cron?mode=logs')).json();
-    document.getElementById('logsData').innerText =
-      (logs.logs||[]).join('\n');
+
+    document.getElementById('logs').innerText =
+      (logs.logs || []).join('\n');
+
   }catch(e){
-    console.log(e);
+    console.log('ERROR:', e);
   }
 }
 
-// LOOPS
-setInterval(load,5000);
-setInterval(loadLogs,2000);
-
-// INIT
+// LOOP
+setInterval(load, 3000);
 load();
-loadLogs();
 
 </script>
 
