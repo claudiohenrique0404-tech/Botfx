@@ -7,9 +7,6 @@
   <style>
     body{background:#0f172a;color:white;font-family:Arial;margin:0}
     header{text-align:center;padding:15px;font-size:22px}
-    nav{display:flex;justify-content:space-around;background:#1e293b;padding:10px}
-    nav button{background:none;border:none;color:#94a3b8;cursor:pointer}
-    .tab{display:none;padding:20px}
     .box{background:#1e293b;padding:15px;margin:10px;border-radius:10px}
     .btn{padding:10px;border:none;font-weight:bold;cursor:pointer}
     .on{background:#22c55e;color:black}
@@ -23,78 +20,54 @@
 
 <header>🤖 Trading Desk</header>
 
-<nav>
-  <button onclick="showTab('dashboard')">Dashboard</button>
-  <button onclick="showTab('performance')">Performance</button>
-  <button onclick="showTab('trades')">Trades</button>
-  <button onclick="showTab('positions')">Posições</button>
-  <button onclick="showTab('logs')">Logs</button>
-</nav>
-
-<div id="dashboard" class="tab">
-  <div class="box">
-    Estado: <span id="status">...</span><br><br>
-    <button id="btn" class="btn" onclick="toggleBot()">...</button>
-  </div>
-
-  <div class="box">💰 Balance: <span id="balance">-</span></div>
-  <div class="box">📊 Winrate: <span id="winrate">-</span></div>
+<div class="box">
+  Estado: <span id="status">...</span><br><br>
+  <button id="btn" class="btn" onclick="toggleBot()">...</button>
 </div>
 
-<div id="performance" class="tab">
-  <div class="box"><canvas id="chart"></canvas></div>
+<div class="box">💰 Balance: <span id="balance">-</span></div>
+<div class="box">📊 Winrate: <span id="winrate">-</span></div>
+
+<div class="box">
+  📈 Equity
+  <canvas id="chart"></canvas>
 </div>
 
-<div id="trades" class="tab">
-  <div class="box"><pre id="tradesData"></pre></div>
+<div class="box">
+  📜 Trades
+  <pre id="tradesData"></pre>
 </div>
 
-<div id="positions" class="tab">
-  <div class="box"><pre id="positionsData"></pre></div>
+<div class="box">
+  📊 Posições
+  <pre id="positionsData"></pre>
 </div>
 
-<div id="logs" class="tab">
-  <div class="box"><pre id="logsData"></pre></div>
+<div class="box">
+  📡 Logs (tempo real)
+  <pre id="logsData"></pre>
 </div>
 
 <script>
 
 let chart;
 let lastRun = 0;
-let isRunning = false;
 
-// ===== NAV
-function showTab(id){
-  document.querySelectorAll('.tab').forEach(t=>t.style.display='none');
-  document.getElementById(id).style.display='block';
-}
-
-// ===== TOGGLE (AGORA ESTÁVEL)
+// ===== TOGGLE
 async function toggleBot(){
-
-  if(isRunning) return;
-
-  isRunning = true;
-
   await fetch('/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'toggleBot'})
   });
-
-  isRunning = false;
 }
 
-// ===== LOAD
+// ===== LOAD (SIMPLIFICADO)
 async function load(){
-
-  if(isRunning) return;
-
-  isRunning = true;
 
   try{
 
-    // ===== SETTINGS (PRIMEIRO SEMPRE)
+    // SETTINGS
     const s = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -116,25 +89,24 @@ async function load(){
       btn.className = 'btn on';
     }
 
-    // ===== EXECUÇÃO CONTROLADA
+    // 🔥 EXECUTA BOT CONTROLADO
     const now = Date.now();
-
     if(s.active && now - lastRun > 8000){
       lastRun = now;
       await fetch('/api/cron');
     }
 
-    // ===== BALANCE
+    // BALANCE
     const bal = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'balance'})
     })).json();
 
-    const balance = parseFloat(bal[0]?.available || 0);
-    document.getElementById('balance').innerText = '$'+balance.toFixed(2);
+    document.getElementById('balance').innerText =
+      '$'+parseFloat(bal[0]?.available || 0).toFixed(2);
 
-    // ===== STATS
+    // STATS
     const stats = await (await fetch('/api/stats')).json();
 
     document.getElementById('winrate').innerText =
@@ -156,7 +128,7 @@ async function load(){
       data:{labels,datasets:[{label:'Equity',data}]}
     });
 
-    // ===== POSITIONS
+    // POSITIONS
     const pos = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -166,7 +138,7 @@ async function load(){
     document.getElementById('positionsData').innerText =
       JSON.stringify(pos || [], null, 2);
 
-    // ===== LOGS (SEMPRE NO FIM)
+    // LOGS (SEM EXECUTAR BOT)
     const logs = await (await fetch('/api/cron?mode=logs')).json();
 
     document.getElementById('logsData').innerText =
@@ -175,14 +147,9 @@ async function load(){
   }catch(e){
     console.log('ERROR:', e);
   }
-
-  isRunning = false;
 }
 
-// ===== LOOP MAIS SEGURO
 setInterval(load,4000);
-
-showTab('dashboard');
 
 </script>
 
