@@ -3,19 +3,26 @@ let equity = [];
 let dataset = [];
 
 function saveTrade(t){
-  trades.push(t);
+
+  const trade = {
+    ...t,
+    id: Date.now() + Math.random()
+  };
+
+  trades.push(trade);
 
   dataset.push({
-    features: t.features,
-    result: null // ainda não sabemos resultado
+    id: trade.id,
+    features: t.features?.slice(0, 20) || [],
+    result: null
   });
 
   if(trades.length > 500) trades.shift();
 }
 
-function updateTradeResult(symbol, pnl){
+function updateTradeResult(id, pnl){
 
-  const item = dataset.find(d => !d.result);
+  const item = dataset.find(d => d.id === id);
 
   if(item){
     item.result = pnl > 0 ? 1 : 0;
