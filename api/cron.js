@@ -1,54 +1,145 @@
-module.exports = async (req, res) => {
-  try {
+const STRAT = require('./strategies');
+const MLAPI = require('./ml-client');
+const { saveTrade, saveEquity } = require('./db');
 
-    const base = process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : '';
+let LOGS = [];
+let LAST_TRADE = 0;
 
-    // SETTINGS
-    const sRes = await fetch(base + '/api/bitget', {
+function log(msg){
+  const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
+  const entry = `[${time}] ${msg}`;
+  console.log(entry);
+
+  LOGS.unshift(entry);
+  if(LOGS.length > 100) LOGS.pop();
+}
+
+module.exports = async (req,res)=>{
+
+  try{
+
+    const base = 'https://botfx-blush.vercel.app';
+
+    const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'getSettings'})
-    });
+    })).json();
 
-    const settings = await sRes.json();
+    if(!settings.active){
+      log('⏸ Bot desligado');
+      return res.json({logs:LOGS});
+    }
 
-    // PREÇOS
-    const pRes = await fetch(base + '/api/bitget', {
+    const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'allPrices'})
-    });
+      body:JSON.stringify({action:'balance'})
+    })).json();
 
-    const prices = await pRes.json();
-    const btc = prices.find(x => x.symbol === 'BTCUSDT');
+    const balance = parseFloat(balanceData[0]?.available || 0);
 
-    if (!btc) throw new Error('No BTC');
+    log(`💰 ${balance.toFixed(2)}`);
 
-    // TAMANHO baseado em risco
-    const balance = 100; // simplificado
-    const riskAmount = balance * (settings.risk / 100);
+    const positions = await (await fetch(base+'/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'positions'})
+    })).json();
 
-    const qty = (riskAmount / btc.price).toFixed(4);
+    for(const sym of settings.symbols){
 
-    // lógica simples (placeholder)
-    if (Math.random() > 0.7) {
+      if(positions.find(p=>p.symbol===sym)) continue;
 
-      await fetch(base + '/api/bitget', {
+      log(`🔍 ${sym}`);
+
+      const candles = await (await fetch(base+'/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'candles',
+          symbol:sym,
+          tf:'1m'
+        })
+      })).json();
+
+      if(!candles.length){
+        log('⚠️ sem dados');
+        continue;
+      }
+
+      const closes = candles.map(c=>+c[4]);
+      const price = closes.at(-1);
+
+      // ===== ML FILTER
+      const prediction = await MLAPI.getPrediction(closes);
+
+      if(!prediction || prediction.confidence < 0.6){
+        log('🧠 ML bloqueou');
+        continue;
+      }
+
+      log(`🧠 ML ok ${prediction.confidence.toFixed(2)}`);
+
+      const signal = STRAT.trendBot(closes);
+
+      if(!signal){
+        log('❌ sem sinal');
+        continue;
+      }
+
+      const now = Date.now();
+      if(now - LAST_TRADE < 8000){
+        log('⏱ cooldown');
+        continue;
+      }
+
+      const qty = (Math.max(5, balance*0.01)/price).toFixed(4);
+
+      const r = await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'order',
-          symbol:'BTCUSDT',
-          side:'BUY',
+          symbol:sym,
+          side:signal.side,
           quantity:qty
         })
       });
 
+      const data = await r.json();
+
+      if(data.code !== '00000'){
+        log(`❌ erro ordem ${data.msg}`);
+        continue;
+      }
+
+      LAST_TRADE = Date.now();
+
+      log(`🚀 ${signal.side} ${sym}`);
+
+      await saveTrade({
+        symbol:sym,
+        side:signal.side,
+        qty,
+        time:Date.now(),
+        features: closes.slice(-10)
+      });
+
+      await saveEquity(balance);
+
+      break;
     }
 
-    return res.json({ ok:true, settings });
+    // 🔥 TREINAR AUTOMATICAMENTE
+    await fetch(base+'/api/ml-train',{
+      method:'POST'
+    });
 
-  } catch (e) {
-    return res.status(500).json({ error:e.message });
+    res.json({logs:LOGS});
+
+  }catch(e){
+    log(`🔥 ${e.message}`);
+    res.json({logs:LOGS});
   }
 };
