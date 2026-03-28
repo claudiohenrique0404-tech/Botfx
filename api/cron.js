@@ -6,12 +6,12 @@ const { buildFeatures } = require('./features');
 let LOGS = [];
 let LAST_TRADE = 0;
 
-// ===== TRACKING POSIÇÕES =====
+// ===== TRACKING =====
 let TRACKING = {};
 
-const BREAK_EVEN = 0.3;
-const TRAIL_START = 0.5;
-const TRAIL_DIST = 0.3;
+const BREAK_EVEN = 0.25;
+const PARTIAL_TP = 0.5;
+const TRAIL_START = 0.6;
 
 function log(msg){
   const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
@@ -28,7 +28,6 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -40,7 +39,6 @@ module.exports = async (req,res)=>{
       return res.json({logs:LOGS});
     }
 
-    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -49,16 +47,15 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 Balance: ${balance.toFixed(2)}`);
+    log(`💰 ${balance.toFixed(2)}`);
 
-    // ===== POSITIONS =====
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== GESTÃO DE POSIÇÕES (TRAILING + BE)
+    // ===== GESTÃO AVANÇADA =====
     for(const p of positions){
 
       const sym = p.symbol;
@@ -77,23 +74,29 @@ module.exports = async (req,res)=>{
       if(!TRACKING[sym]){
         TRACKING[sym] = {
           maxPnL: pnl,
-          breakEven: false
+          breakEven: false,
+          partial: false
         };
       }
 
       const t = TRACKING[sym];
 
-      if(pnl > t.maxPnL){
-        t.maxPnL = pnl;
+      if(pnl > t.maxPnL) t.maxPnL = pnl;
+
+      // ===== PARTIAL TAKE PROFIT
+      if(pnl >= PARTIAL_TP && !t.partial){
+        log(`💰 PARTIAL TP ${sym}`);
+        await closePartial(sym, side, base);
+        t.partial = true;
       }
 
-      // BREAK EVEN
+      // ===== BREAK EVEN
       if(pnl >= BREAK_EVEN && !t.breakEven){
         t.breakEven = true;
         log(`🟡 BE ATIVO ${sym}`);
       }
 
-      // STOP LOSS
+      // ===== STOP LOSS
       if(!t.breakEven && pnl <= -0.5){
         log(`🛑 STOP LOSS ${sym}`);
         await closeAll(sym, side, base, pnl);
@@ -101,34 +104,62 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      // BREAK EVEN EXIT
+      // ===== BREAK EVEN EXIT
       if(t.breakEven && pnl <= 0){
-        log(`⚖️ BREAK EVEN EXIT ${sym}`);
+        log(`⚖️ BE EXIT ${sym}`);
         await closeAll(sym, side, base, pnl);
         delete TRACKING[sym];
         continue;
       }
 
-      // TRAILING STOP
+      // ===== TRAILING DINÂMICO
       if(t.maxPnL >= TRAIL_START){
 
-        const trail = t.maxPnL - TRAIL_DIST;
+        let dynamicTrail = 0.3;
 
-        if(pnl <= trail){
-          log(`📉 TRAILING EXIT ${sym}`);
+        if(t.maxPnL > 1) dynamicTrail = 0.5;
+        if(t.maxPnL > 2) dynamicTrail = 0.8;
+
+        const trailLevel = t.maxPnL - dynamicTrail;
+
+        if(pnl <= trailLevel){
+          log(`📉 TRAIL EXIT ${sym}`);
           await closeAll(sym, side, base, pnl);
           delete TRACKING[sym];
           continue;
         }
       }
+
+      // ===== REVERSÃO DE TENDÊNCIA
+      const candles = await (await fetch(base+'/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'candles',
+          symbol:sym,
+          tf:'1m'
+        })
+      })).json();
+
+      const closes = candles.map(c=>+c[4]);
+
+      const signal = STRAT.trendBot(closes);
+
+      if(signal && (
+        (side === 'long' && signal.side === 'SELL') ||
+        (side === 'short' && signal.side === 'BUY')
+      )){
+        log(`🔄 REVERSÃO ${sym}`);
+        await closeAll(sym, side, base, pnl);
+        delete TRACKING[sym];
+        continue;
+      }
     }
 
-    // ===== NOVAS ENTRADAS =====
+    // ===== ENTRADAS =====
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
-
-      log(`🔍 Analisar ${sym}`);
 
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
@@ -140,48 +171,29 @@ module.exports = async (req,res)=>{
         })
       })).json();
 
-      if(!candles.length){
-        log('⚠️ sem dados');
-        continue;
-      }
+      if(!candles.length) continue;
 
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
 
-      // ===== FEATURES PROFISSIONAIS 🔥
       const features = buildFeatures(closes);
 
-      // ===== ML FILTER 🔥
       const prediction = await MLAPI.getPrediction(features);
 
-      if(!prediction || prediction.confidence < 0.6){
+      if(!prediction || prediction.confidence < 0.65){
         log('🧠 ML bloqueou');
         continue;
       }
 
-      log(`🧠 ML ok (${prediction.confidence.toFixed(2)})`);
-
-      // ===== STRATEGY BASE =====
       const signal = STRAT.trendBot(closes);
+      if(!signal) continue;
 
-      if(!signal){
-        log('❌ sem sinal');
-        continue;
-      }
-
-      // ===== COOLDOWN =====
       const now = Date.now();
-      if(now - LAST_TRADE < 8000){
-        log('⏱ cooldown ativo');
-        continue;
-      }
+      if(now - LAST_TRADE < 8000) continue;
 
-      // ===== POSITION SIZE =====
       const qty = (Math.max(5, balance*0.01)/price).toFixed(4);
 
-      log(`⚖️ qty:${qty}`);
-
-      const r = await fetch(base+'/api/bitget',{
+      await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
@@ -192,20 +204,14 @@ module.exports = async (req,res)=>{
         })
       });
 
-      const data = await r.json();
-
-      if(data.code !== '00000'){
-        log(`❌ erro ordem ${data.msg}`);
-        continue;
-      }
-
       LAST_TRADE = Date.now();
 
       log(`🚀 ${signal.side} ${sym}`);
 
       TRACKING[sym] = {
         maxPnL: 0,
-        breakEven: false
+        breakEven: false,
+        partial: false
       };
 
       await saveTrade({
@@ -213,18 +219,13 @@ module.exports = async (req,res)=>{
         side:signal.side,
         qty,
         time:Date.now(),
-        features: features
+        features
       });
 
       await saveEquity(balance);
 
       break;
     }
-
-    // ===== TREINO AUTOMÁTICO ML 🔥
-    await fetch(base+'/api/ml-train',{
-      method:'POST'
-    });
 
     res.json({logs:LOGS});
 
@@ -234,7 +235,8 @@ module.exports = async (req,res)=>{
   }
 };
 
-// ===== FECHAR POSIÇÃO =====
+// ===== HELPERS =====
+
 async function closeAll(symbol, side, base, pnl){
 
   const closeSide = side === 'long' ? 'SELL' : 'BUY';
@@ -250,13 +252,25 @@ async function closeAll(symbol, side, base, pnl){
     })
   });
 
-  // 🔥 enviar resultado para treino
   await fetch(base+'/api/db-update',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({symbol,pnl})
+  });
+}
+
+async function closePartial(symbol, side, base){
+
+  const closeSide = side === 'long' ? 'SELL' : 'BUY';
+
+  await fetch(base+'/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
+      action:'order',
       symbol,
-      pnl
+      side:closeSide,
+      quantity:0.5
     })
   });
 }
