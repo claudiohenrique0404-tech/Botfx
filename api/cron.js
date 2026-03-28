@@ -5,6 +5,12 @@ const { buildFeatures } = require('./features');
 
 if(!global.LOGS) global.LOGS = [];
 if(!global.POS_STATE) global.POS_STATE = {};
+if(!global.settings){
+  global.settings = {
+    active:false,
+    symbols:['BTCUSDT']
+  };
+}
 
 let LOGS = global.LOGS;
 let POS_STATE = global.POS_STATE;
@@ -25,18 +31,15 @@ module.exports = async (req,res)=>{
       return res.json({logs:LOGS});
     }
 
-    const base = 'https://botfx-blush.vercel.app';
-
-    const settings = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'getSettings'})
-    })).json();
+    // 🔥 USAR GLOBAL (FIX PRINCIPAL)
+    const settings = global.settings;
 
     if(!settings.active){
       log('⏸ BOT OFF');
       return res.json({logs:LOGS});
     }
+
+    const base = 'https://botfx-blush.vercel.app';
 
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
@@ -72,24 +75,17 @@ module.exports = async (req,res)=>{
 
       let state = POS_STATE[sym];
 
-      // atualizar máximo
       if(pnl > state.maxPnl){
         state.maxPnl = pnl;
       }
 
       log(`📊 ${sym} pnl:${pnl.toFixed(2)} max:${state.maxPnl.toFixed(2)}`);
 
-      // =================
-      // 🔥 BREAK EVEN
-      // =================
       if(pnl > 1 && !state.breakeven){
         state.breakeven = true;
         log(`🟢 BREAK EVEN ATIVADO ${sym}`);
       }
 
-      // =================
-      // 🔥 PARTIAL CLOSE
-      // =================
       if(pnl > 2 && !state.partialClosed){
 
         const half = (size * 0.5).toFixed(4);
@@ -110,9 +106,6 @@ module.exports = async (req,res)=>{
         state.partialClosed = true;
       }
 
-      // =================
-      // 🔥 TRAILING STOP
-      // =================
       const trailTrigger = state.maxPnl - 1.5;
 
       if(state.maxPnl > 2 && pnl < trailTrigger){
@@ -134,9 +127,6 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      // =================
-      // 🔥 STOP LOSS
-      // =================
       if(pnl < -1.5){
         log(`🛑 STOP LOSS ${sym}`);
 
