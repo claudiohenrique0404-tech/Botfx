@@ -20,18 +20,22 @@ function trendBot(closes){
 
   if(strength < 0.002) return null;
 
+  const conf = Math.min(1, 0.8 + strength*5);
+
   if(ema20 > ema50){
-    return { side:'BUY', confidence: 0.8 + strength*5, bot:'trend' };
+    return { side:'BUY', confidence: conf, bot:'trend' };
   }
 
   if(ema20 < ema50){
-    return { side:'SELL', confidence: 0.8 + strength*5, bot:'trend' };
+    return { side:'SELL', confidence: conf, bot:'trend' };
   }
 
   return null;
 }
 
 function rsiBot(closes){
+
+  if(closes.length < 15) return null;
 
   let gains=0, losses=0;
 
@@ -51,6 +55,8 @@ function rsiBot(closes){
 }
 
 function momentumBot(closes){
+
+  if(closes.length < 6) return null;
 
   const m = (closes.at(-1)-closes.at(-5))/closes.at(-5);
 
