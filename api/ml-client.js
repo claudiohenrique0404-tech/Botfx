@@ -1,19 +1,15 @@
 async function getPrediction(data){
 
   try{
-
-    const r = await fetch('https://ml-api-production-d47c.up.railway.app/predict',{
+    const r = await fetch('https://teu-ml-api.com/predict',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ data })
     });
 
-    const d = await r.json();
+    return await r.json();
 
-    return d;
-
-  }catch(e){
-    console.log('ML ERROR:', e.message);
+  }catch{
     return null;
   }
 }
