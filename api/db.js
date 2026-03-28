@@ -3,7 +3,11 @@ let equity = [];
 let dataset = [];
 
 function saveTrade(t){
-  trades.push(t);
+
+  trades.push({
+    ...t,
+    pnl: 0
+  });
 
   dataset.push({
     features: t.features,
@@ -14,6 +18,13 @@ function saveTrade(t){
 }
 
 function updateTradeResult(symbol, pnl){
+
+  // atualiza último trade aberto
+  const trade = [...trades].reverse().find(t=>t.symbol===symbol && t.pnl===0);
+
+  if(trade){
+    trade.pnl = pnl;
+  }
 
   const item = dataset.find(d => d.result === null);
 
