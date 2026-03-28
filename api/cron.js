@@ -6,6 +6,11 @@ const BRAIN = require('./brain');
 
 let LOGS = [];
 let LAST_TRADE = 0;
+let TRADES_TODAY = 0;
+let START_BALANCE = null;
+
+const MAX_TRADES_DAY = 10;
+const MAX_DAILY_LOSS = -3; // %
 
 function log(msg){
   const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
@@ -16,7 +21,7 @@ function log(msg){
   if(LOGS.length > 200) LOGS.pop();
 }
 
-// ===== ANALISAR BOTS =====
+// ===== CONSENSO FORTE
 function analyzeBots(closes){
 
   const signals = {
@@ -26,23 +31,6 @@ function analyzeBots(closes){
   };
 
   const weights = BRAIN.getWeights();
-
-  log(`🤖 BOT SIGNALS:`);
-
-  for(const k in signals){
-    const s = signals[k];
-    if(s){
-      log(`${k} → ${s.side} (${s.confidence})`);
-    } else {
-      log(`${k} → null`);
-    }
-  }
-
-  log(`🧠 WEIGHTS:`);
-
-  for(const k in weights){
-    log(`${k}: ${weights[k].toFixed(2)}`);
-  }
 
   let buy = 0, sell = 0, used = [];
 
@@ -59,10 +47,10 @@ function analyzeBots(closes){
     used.push(k);
   }
 
-  log(`🗳️ RESULT → BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
+  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
-  if(buy > 0.6) return { side:'BUY', bots:used };
-  if(sell > 0.6) return { side:'SELL', bots:used };
+  if(buy > 0.75) return { side:'BUY', bots:used };
+  if(sell > 0.75) return { side:'SELL', bots:used };
 
   return null;
 }
@@ -94,11 +82,22 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 Balance: ${balance.toFixed(2)}`);
+    if(!START_BALANCE) START_BALANCE = balance;
 
-    // 🚨 ALERTAS
-    if(balance < 90){
-      log('🚨 ALERTA: perda significativa');
+    const pnlDay = ((balance - START_BALANCE)/START_BALANCE)*100;
+
+    log(`💰 ${balance.toFixed(2)} | Day: ${pnlDay.toFixed(2)}%`);
+
+    // 🚨 KILL SWITCH
+    if(pnlDay <= MAX_DAILY_LOSS){
+      log('🛑 KILL SWITCH ATIVADO');
+      return res.json({logs:LOGS});
+    }
+
+    // 🚫 LIMITE DE TRADES
+    if(TRADES_TODAY >= MAX_TRADES_DAY){
+      log('⏸ LIMITE DE TRADES ATINGIDO');
+      return res.json({logs:LOGS});
     }
 
     // ===== POSITIONS
@@ -108,13 +107,11 @@ module.exports = async (req,res)=>{
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== LOOP SYMBOLS
     for(const sym of settings.symbols){
 
-      // ignora se já tem posição
       if(positions.find(p=>p.symbol===sym)) continue;
 
-      log(`🔍 ANALISAR ${sym}`);
+      log(`🔍 ${sym}`);
 
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
@@ -132,11 +129,10 @@ module.exports = async (req,res)=>{
       }
 
       const closes = candles.map(c=>+c[4]);
+      const price = closes.at(-1);
 
-      // ===== FEATURES
       const features = buildFeatures(closes);
 
-      // ===== ML
       const pred = await MLAPI.getPrediction(features);
 
       if(!pred){
@@ -144,43 +140,36 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      log(`🧠 ML confidence: ${pred.confidence.toFixed(2)}`);
+      log(`🧠 ML: ${pred.confidence.toFixed(2)}`);
 
-      // 🚨 alerta ML fraco
-      if(pred.confidence < 0.5){
-        log('⚠️ ALERTA: ML muito fraco');
-      }
-
-      // 👉 NÃO BLOQUEIA NA FASE INICIAL
-      // só ignora valores absurdos
-      if(pred.confidence < 0.3){
-        log('🧠 ignorado (muito fraco)');
+      // 🔥 FILTRO CONSERVADOR
+      if(pred.confidence < 0.55){
+        log('❌ ML fraco');
         continue;
       }
 
-      // ===== CONSENSO BOTS
       const decision = analyzeBots(closes);
 
       if(!decision){
-        log('❌ SEM CONSENSO');
+        log('❌ sem consenso forte');
         continue;
       }
 
-      log(`🎯 DECISÃO FINAL: ${decision.side}`);
+      const now = Date.now();
 
-      const price = closes.at(-1);
+      // ⏱ COOLDOWN MAIS LONGO
+      if(now - LAST_TRADE < 15000){
+        log('⏱ cooldown');
+        continue;
+      }
 
-      // ===== RISK DINÂMICO
-      let risk = 0.01;
+      // 🔥 RISCO BAIXO
+      const risk = 0.005; // 0.5%
 
-      if(pred.confidence > 0.8) risk = 0.02;
-      if(pred.confidence > 0.9) risk = 0.03;
+      const qty = ((balance * risk)/price).toFixed(4);
 
-      const qty = ((balance * risk) / price).toFixed(4);
+      log(`⚖️ qty:${qty}`);
 
-      log(`⚖️ qty:${qty} risk:${risk}`);
-
-      // ===== EXECUÇÃO
       const r = await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -195,15 +184,15 @@ module.exports = async (req,res)=>{
       const data = await r.json();
 
       if(data.code !== '00000'){
-        log(`❌ erro ordem ${data.msg}`);
+        log(`❌ erro ${data.msg}`);
         continue;
       }
 
       LAST_TRADE = Date.now();
+      TRADES_TODAY++;
 
-      log(`🚀 EXECUTADO ${decision.side} ${sym}`);
+      log(`🚀 ${decision.side} ${sym}`);
 
-      // ===== SAVE TRADE
       await saveTrade({
         symbol:sym,
         side:decision.side,
