@@ -6,20 +6,59 @@ const { buildFeatures } = require('./features');
 let LOGS = [];
 let LAST_TRADE = 0;
 
-// ===== TRACKING POSIÇÕES =====
 let TRACKING = {};
+let BOT_SCORE = {
+  trend:1,
+  rsi:1,
+  momentum:1
+};
 
-const BREAK_EVEN = 0.3;
-const TRAIL_START = 0.5;
-const TRAIL_DIST = 0.3;
+const MAX_DAILY_LOSS = -3;
+let START_BALANCE = null;
 
 function log(msg){
-  const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
-  const entry = `[${time}] ${msg}`;
-  console.log(entry);
+  const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
+  const e = `[${t}] ${msg}`;
+  console.log(e);
+  LOGS.unshift(e);
+  if(LOGS.length>150) LOGS.pop();
+}
 
-  LOGS.unshift(entry);
-  if(LOGS.length > 150) LOGS.pop();
+function normalize(){
+  const total = Object.values(BOT_SCORE).reduce((a,b)=>a+b,0);
+  let w={};
+  for(const k in BOT_SCORE){
+    w[k]=BOT_SCORE[k]/total;
+  }
+  return w;
+}
+
+function consensus(closes){
+
+  const w = normalize();
+
+  const signals = {
+    trend: STRAT.trendBot(closes),
+    rsi: STRAT.rsiBot(closes),
+    momentum: STRAT.momentumBot(closes)
+  };
+
+  let buy=0, sell=0;
+
+  for(const k in signals){
+    const s = signals[k];
+    if(!s) continue;
+
+    if(s.side==='BUY') buy += s.confidence * w[k];
+    if(s.side==='SELL') sell += s.confidence * w[k];
+  }
+
+  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
+
+  if(buy > 0.7) return 'BUY';
+  if(sell > 0.7) return 'SELL';
+
+  return null;
 }
 
 module.exports = async (req,res)=>{
@@ -28,7 +67,6 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -40,7 +78,6 @@ module.exports = async (req,res)=>{
       return res.json({logs:LOGS});
     }
 
-    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -49,16 +86,24 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 Balance: ${balance.toFixed(2)}`);
+    if(!START_BALANCE) START_BALANCE = balance;
 
-    // ===== POSITIONS =====
+    const pnlDay = ((balance-START_BALANCE)/START_BALANCE)*100;
+
+    log(`💰 ${balance.toFixed(2)} | PnL: ${pnlDay.toFixed(2)}%`);
+
+    if(pnlDay <= MAX_DAILY_LOSS){
+      log('🛑 KILL SWITCH');
+      return res.json({logs:LOGS});
+    }
+
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== GESTÃO DE POSIÇÕES (TRAILING + BE)
+    // ===== GESTÃO POSIÇÕES SIMPLIFICADA (já tens sistema forte)
     for(const p of positions){
 
       const sym = p.symbol;
@@ -66,69 +111,24 @@ module.exports = async (req,res)=>{
       const price = parseFloat(p.markPrice || p.last);
       const side = p.holdSide;
 
-      if(!entry || !price) continue;
+      let pnl = side==='long'
+        ? ((price-entry)/entry)*100
+        : ((entry-price)/entry)*100;
 
-      let pnl = side === 'long'
-        ? ((price - entry)/entry)*100
-        : ((entry - price)/entry)*100;
-
-      log(`📊 ${sym} ${pnl.toFixed(2)}%`);
-
-      if(!TRACKING[sym]){
-        TRACKING[sym] = {
-          maxPnL: pnl,
-          breakEven: false
-        };
-      }
-
-      const t = TRACKING[sym];
-
-      if(pnl > t.maxPnL){
-        t.maxPnL = pnl;
-      }
-
-      // BREAK EVEN
-      if(pnl >= BREAK_EVEN && !t.breakEven){
-        t.breakEven = true;
-        log(`🟡 BE ATIVO ${sym}`);
-      }
-
-      // STOP LOSS
-      if(!t.breakEven && pnl <= -0.5){
-        log(`🛑 STOP LOSS ${sym}`);
-        await closeAll(sym, side, base, pnl);
+      if(pnl < -0.6){
+        await closeAll(sym,side,base,pnl);
         delete TRACKING[sym];
-        continue;
       }
 
-      // BREAK EVEN EXIT
-      if(t.breakEven && pnl <= 0){
-        log(`⚖️ BREAK EVEN EXIT ${sym}`);
-        await closeAll(sym, side, base, pnl);
-        delete TRACKING[sym];
-        continue;
-      }
-
-      // TRAILING STOP
-      if(t.maxPnL >= TRAIL_START){
-
-        const trail = t.maxPnL - TRAIL_DIST;
-
-        if(pnl <= trail){
-          log(`📉 TRAILING EXIT ${sym}`);
-          await closeAll(sym, side, base, pnl);
-          delete TRACKING[sym];
-          continue;
-        }
+      if(pnl > 1){
+        await closePartial(sym,side,base);
       }
     }
 
-    // ===== NOVAS ENTRADAS =====
+    // ===== ENTRADAS =====
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
-
-      log(`🔍 Analisar ${sym}`);
 
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
@@ -140,91 +140,62 @@ module.exports = async (req,res)=>{
         })
       })).json();
 
-      if(!candles.length){
-        log('⚠️ sem dados');
-        continue;
-      }
+      if(!candles.length) continue;
 
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
 
-      // ===== FEATURES PROFISSIONAIS 🔥
       const features = buildFeatures(closes);
 
-      // ===== ML FILTER 🔥
       const prediction = await MLAPI.getPrediction(features);
 
-      if(!prediction || prediction.confidence < 0.6){
-        log('🧠 ML bloqueou');
+      if(!prediction || prediction.confidence < 0.7){
+        log('🧠 bloqueado');
         continue;
       }
 
-      log(`🧠 ML ok (${prediction.confidence.toFixed(2)})`);
-
-      // ===== STRATEGY BASE =====
-      const signal = STRAT.trendBot(closes);
-
-      if(!signal){
-        log('❌ sem sinal');
+      const side = consensus(closes);
+      if(!side){
+        log('❌ sem consenso');
         continue;
       }
 
-      // ===== COOLDOWN =====
       const now = Date.now();
-      if(now - LAST_TRADE < 8000){
-        log('⏱ cooldown ativo');
-        continue;
-      }
+      if(now-LAST_TRADE < 6000) continue;
 
-      // ===== POSITION SIZE =====
-      const qty = (Math.max(5, balance*0.01)/price).toFixed(4);
+      let risk = 0.01;
 
-      log(`⚖️ qty:${qty}`);
+      if(prediction.confidence > 0.85) risk=0.02;
 
-      const r = await fetch(base+'/api/bitget',{
+      const qty = ((balance*risk)/price).toFixed(4);
+
+      await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'order',
           symbol:sym,
-          side:signal.side,
+          side,
           quantity:qty
         })
       });
 
-      const data = await r.json();
-
-      if(data.code !== '00000'){
-        log(`❌ erro ordem ${data.msg}`);
-        continue;
-      }
-
       LAST_TRADE = Date.now();
 
-      log(`🚀 ${signal.side} ${sym}`);
-
-      TRACKING[sym] = {
-        maxPnL: 0,
-        breakEven: false
-      };
+      log(`🚀 ${side} ${sym}`);
 
       await saveTrade({
         symbol:sym,
-        side:signal.side,
+        side,
         qty,
         time:Date.now(),
-        features: features
+        features
       });
 
       await saveEquity(balance);
 
       break;
     }
-
-    // ===== TREINO AUTOMÁTICO ML 🔥
-    await fetch(base+'/api/ml-train',{
-      method:'POST'
-    });
 
     res.json({logs:LOGS});
 
@@ -234,10 +205,10 @@ module.exports = async (req,res)=>{
   }
 };
 
-// ===== FECHAR POSIÇÃO =====
+// ===== HELPERS =====
 async function closeAll(symbol, side, base, pnl){
 
-  const closeSide = side === 'long' ? 'SELL' : 'BUY';
+  const closeSide = side==='long'?'SELL':'BUY';
 
   await fetch(base+'/api/bitget',{
     method:'POST',
@@ -250,13 +221,25 @@ async function closeAll(symbol, side, base, pnl){
     })
   });
 
-  // 🔥 enviar resultado para treino
   await fetch(base+'/api/db-update',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({symbol,pnl})
+  });
+}
+
+async function closePartial(symbol, side, base){
+
+  const closeSide = side==='long'?'SELL':'BUY';
+
+  await fetch(base+'/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
+      action:'order',
       symbol,
-      pnl
+      side:closeSide,
+      quantity:0.5
     })
   });
 }
