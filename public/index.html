@@ -1,48 +1,140 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Trading Desk Pro</title>
+  <title>Trading Desk Hedge</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
-    body{font-family:Arial;background:#0f172a;color:#e2e8f0;padding:20px}
-    h1{color:#38bdf8}
-    .box{background:#1e293b;padding:15px;margin:10px 0;border-radius:10px}
-    .green{color:#22c55e}
-    .red{color:#ef4444}
-    pre{white-space:pre-wrap}
-    button{padding:10px;background:#38bdf8;border:none;border-radius:5px;color:#000;font-weight:bold}
+    body{font-family:Arial;background:#020617;color:#e2e8f0;margin:0}
+    header{padding:15px;text-align:center;color:#38bdf8;font-size:22px}
+    nav{display:flex;justify-content:space-around;background:#1e293b;padding:10px}
+    nav button{background:none;border:none;color:#94a3b8;cursor:pointer}
+    .tab{display:none;padding:20px}
+    .box{background:#1e293b;padding:15px;margin:10px;border-radius:10px}
+    canvas{background:#fff;border-radius:10px}
   </style>
 </head>
 <body>
 
-<h1>🤖 Trading Desk PRO</h1>
+<header>📊 Trading Desk Hedge Fund</header>
 
-<div class="box">
-  <button onclick="toggle()">ON / OFF BOT</button>
+<nav>
+  <button onclick="showTab('dashboard')">Dashboard</button>
+  <button onclick="showTab('performance')">Performance</button>
+  <button onclick="showTab('bots')">Bots</button>
+  <button onclick="showTab('logs')">Logs</button>
+</nav>
+
+<div id="dashboard" class="tab">
+
+  <div class="box">💰 Balance: <span id="balance"></span></div>
+  <div class="box">📊 PnL: <span id="pnl"></span></div>
+  <div class="box">🎯 Winrate: <span id="winrate"></span></div>
+  <div class="box">📉 Drawdown: <span id="drawdown"></span></div>
+  <div class="box">📐 Sharpe: <span id="sharpe"></span></div>
+
 </div>
 
-<div class="box">
-  <h2>📡 Logs Inteligentes</h2>
-  <pre id="logs"></pre>
+<div id="performance" class="tab">
+
+  <div class="box">
+    <canvas id="equityChart"></canvas>
+  </div>
+
+</div>
+
+<div id="bots" class="tab">
+
+  <div class="box">
+    <h3>🤖 Ranking Bots</h3>
+    <pre id="botsData"></pre>
+  </div>
+
+</div>
+
+<div id="logs" class="tab">
+
+  <div class="box">
+    <pre id="logs"></pre>
+  </div>
+
 </div>
 
 <script>
 
-async function fetchLogs(){
-  const r=await fetch('/api/cron');
-  const d=await r.json();
+let chart;
 
-  document.getElementById('logs').innerText=d.logs.join('\n');
+function showTab(id){
+  document.querySelectorAll('.tab').forEach(t=>t.style.display='none');
+  document.getElementById(id).style.display='block';
 }
 
-async function toggle(){
-  await fetch('/api/bitget',{
+async function load(){
+
+  const stats = await (await fetch('/api/stats')).json();
+
+  // METRICS
+  document.getElementById('winrate').innerText =
+    (stats.winrate*100).toFixed(2)+'%';
+
+  document.getElementById('drawdown').innerText =
+    (stats.drawdown*100).toFixed(2)+'%';
+
+  document.getElementById('sharpe').innerText =
+    stats.sharpe.toFixed(2);
+
+  // BOT RANKING
+  document.getElementById('botsData').innerText =
+    JSON.stringify(stats.botRanking,null,2);
+
+  // EQUITY CHART
+  const labels = stats.equity.map(e=>new Date(e.time).toLocaleTimeString());
+  const data = stats.equity.map(e=>e.value);
+
+  if(chart) chart.destroy();
+
+  chart = new Chart(document.getElementById('equityChart'),{
+    type:'line',
+    data:{
+      labels,
+      datasets:[{
+        label:'Equity',
+        data
+      }]
+    }
+  });
+
+  // LOGS
+  const logs = await (await fetch('/api/cron')).json();
+  document.getElementById('logs').innerText =
+    logs.logs.join('\n');
+
+  // BALANCE
+  const bal = await (await fetch('/api/bitget',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'toggleBot'})
-  });
+    body:JSON.stringify({action:'balance'})
+  })).json();
+
+  const balance = parseFloat(bal[0]?.available || 0);
+
+  document.getElementById('balance').innerText =
+    '$'+balance.toFixed(2);
+
+  // PNL
+  if(stats.equity.length){
+    const start = stats.equity[0].value;
+    const last = stats.equity.at(-1).value;
+
+    const pnl = ((last-start)/start*100).toFixed(2);
+
+    document.getElementById('pnl').innerText = pnl+'%';
+  }
 }
 
-setInterval(fetchLogs,3000);
+setInterval(load,3000);
+showTab('dashboard');
 
 </script>
 
