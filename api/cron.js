@@ -2,18 +2,17 @@ const STRAT = require('./strategies');
 const MLAPI = require('./ml-client');
 const { saveTrade, saveEquity } = require('./db');
 const { buildFeatures } = require('./features');
-const BRAIN = require('./brain');
 
-if(!global.LOGS){
-  global.LOGS = [];
-}
+if(!global.LOGS) global.LOGS = [];
+if(!global.POS_STATE) global.POS_STATE = {};
+
 let LOGS = global.LOGS;
+let POS_STATE = global.POS_STATE;
 
 function log(msg){
   const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
   const e = `[${t}] ${msg}`;
   console.log(e);
-
   LOGS.unshift(e);
   if(LOGS.length > 200) LOGS.pop();
 }
@@ -22,14 +21,12 @@ module.exports = async (req,res)=>{
 
   try{
 
-    // ===== LOGS MODE
     if(req.query.mode === 'logs'){
       return res.json({logs:LOGS});
     }
 
     const base = 'https://botfx-blush.vercel.app';
 
-    // ===== SETTINGS
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -41,7 +38,6 @@ module.exports = async (req,res)=>{
       return res.json({logs:LOGS});
     }
 
-    // ===== BALANCE
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -50,27 +46,78 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 ${balance.toFixed(2)}`);
-
-    // ===== POSITIONS
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // 🔥 GESTÃO DE POSIÇÕES (AUTONOMIA)
+    // =========================
+    // 🔥 GESTÃO AVANÇADA
+    // =========================
+
     for(const pos of positions){
 
+      const sym = pos.symbol;
       const pnl = parseFloat(pos.unrealizedPL || 0);
       const size = parseFloat(pos.total || 0);
-      const sym = pos.symbol;
 
-      log(`📊 ${sym} PnL: ${pnl.toFixed(2)}`);
+      if(!POS_STATE[sym]){
+        POS_STATE[sym] = {
+          maxPnl: pnl,
+          breakeven:false,
+          partialClosed:false
+        };
+      }
 
-      // TAKE PROFIT
-      if(pnl > 2){
-        log(`💰 TAKE PROFIT ${sym}`);
+      let state = POS_STATE[sym];
+
+      // atualizar máximo
+      if(pnl > state.maxPnl){
+        state.maxPnl = pnl;
+      }
+
+      log(`📊 ${sym} pnl:${pnl.toFixed(2)} max:${state.maxPnl.toFixed(2)}`);
+
+      // =================
+      // 🔥 BREAK EVEN
+      // =================
+      if(pnl > 1 && !state.breakeven){
+        state.breakeven = true;
+        log(`🟢 BREAK EVEN ATIVADO ${sym}`);
+      }
+
+      // =================
+      // 🔥 PARTIAL CLOSE
+      // =================
+      if(pnl > 2 && !state.partialClosed){
+
+        const half = (size * 0.5).toFixed(4);
+
+        log(`✂️ PARTIAL CLOSE ${sym}`);
+
+        await fetch(base+'/api/bitget',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            action:'order',
+            symbol:sym,
+            side: pos.holdSide === 'long' ? 'SELL' : 'BUY',
+            quantity:half
+          })
+        });
+
+        state.partialClosed = true;
+      }
+
+      // =================
+      // 🔥 TRAILING STOP
+      // =================
+      const trailTrigger = state.maxPnl - 1.5;
+
+      if(state.maxPnl > 2 && pnl < trailTrigger){
+
+        log(`📉 TRAILING STOP ${sym}`);
 
         await fetch(base+'/api/bitget',{
           method:'POST',
@@ -83,11 +130,14 @@ module.exports = async (req,res)=>{
           })
         });
 
+        delete POS_STATE[sym];
         continue;
       }
 
-      // STOP LOSS
-      if(pnl < -1){
+      // =================
+      // 🔥 STOP LOSS
+      // =================
+      if(pnl < -1.5){
         log(`🛑 STOP LOSS ${sym}`);
 
         await fetch(base+'/api/bitget',{
@@ -101,16 +151,19 @@ module.exports = async (req,res)=>{
           })
         });
 
+        delete POS_STATE[sym];
         continue;
       }
+
     }
 
-    // ===== NOVAS ENTRADAS (SE NÃO HOUVER POSIÇÕES)
+    // =========================
+    // 🔥 ENTRADAS
+    // =========================
+
     if(positions.length === 0){
 
       for(const sym of settings.symbols){
-
-        log(`🔍 ${sym}`);
 
         const candles = await (await fetch(base+'/api/bitget',{
           method:'POST',
@@ -130,8 +183,7 @@ module.exports = async (req,res)=>{
         const features = buildFeatures(closes);
         const pred = await MLAPI.getPrediction(features);
 
-        if(!pred || pred.confidence < 0.55){
-          log('❌ ML fraco');
+        if(!pred || pred.confidence < 0.6){
           continue;
         }
 
