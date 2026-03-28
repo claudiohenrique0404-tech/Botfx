@@ -5,12 +5,6 @@ const { buildFeatures } = require('./features');
 
 if(!global.LOGS) global.LOGS = [];
 if(!global.POS_STATE) global.POS_STATE = {};
-if(!global.settings){
-  global.settings = {
-    active:false,
-    symbols:['BTCUSDT']
-  };
-}
 
 let LOGS = global.LOGS;
 let POS_STATE = global.POS_STATE;
@@ -27,39 +21,35 @@ module.exports = async (req,res)=>{
 
   try{
 
+    // ===== LOGS MODE
     if(req.query.mode === 'logs'){
       return res.json({logs:LOGS});
     }
 
-    // 🔥 USAR GLOBAL (FIX PRINCIPAL)
-    const settings = global.settings;
+    // 🔥 LOCAL (SEM URL EXTERNO)
+    const endpoint = '/api/bitget';
 
-    if(!settings.active){
-      log('⏸ BOT OFF');
-      return res.json({logs:LOGS});
-    }
-
-    const base = 'https://botfx-blush.vercel.app';
-
-    const balanceData = await (await fetch(base+'/api/bitget',{
+    // ===== BALANCE
+    const balanceData = await (await fetch(endpoint,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'balance'})
     })).json();
 
-    const balance = parseFloat(balanceData[0]?.available || 0);
+    const balance = parseFloat(balanceData?.[0]?.available || 0);
 
-    const positions = await (await fetch(base+'/api/bitget',{
+    // ===== POSITIONS
+    const positions = await (await fetch(endpoint,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
     // =========================
-    // 🔥 GESTÃO AVANÇADA
+    // 🔥 GESTÃO DE POSIÇÕES
     // =========================
 
-    for(const pos of positions){
+    for(const pos of positions || []){
 
       const sym = pos.symbol;
       const pnl = parseFloat(pos.unrealizedPL || 0);
@@ -81,18 +71,20 @@ module.exports = async (req,res)=>{
 
       log(`📊 ${sym} pnl:${pnl.toFixed(2)} max:${state.maxPnl.toFixed(2)}`);
 
+      // BREAK EVEN
       if(pnl > 1 && !state.breakeven){
         state.breakeven = true;
-        log(`🟢 BREAK EVEN ATIVADO ${sym}`);
+        log(`🟢 BREAK EVEN ${sym}`);
       }
 
+      // PARTIAL CLOSE
       if(pnl > 2 && !state.partialClosed){
 
         const half = (size * 0.5).toFixed(4);
 
-        log(`✂️ PARTIAL CLOSE ${sym}`);
+        log(`✂️ PARTIAL ${sym}`);
 
-        await fetch(base+'/api/bitget',{
+        await fetch(endpoint,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -106,13 +98,14 @@ module.exports = async (req,res)=>{
         state.partialClosed = true;
       }
 
-      const trailTrigger = state.maxPnl - 1.5;
+      // TRAILING
+      const trail = state.maxPnl - 1.5;
 
-      if(state.maxPnl > 2 && pnl < trailTrigger){
+      if(state.maxPnl > 2 && pnl < trail){
 
-        log(`📉 TRAILING STOP ${sym}`);
+        log(`📉 TRAILING ${sym}`);
 
-        await fetch(base+'/api/bitget',{
+        await fetch(endpoint,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -127,10 +120,12 @@ module.exports = async (req,res)=>{
         continue;
       }
 
+      // STOP LOSS
       if(pnl < -1.5){
-        log(`🛑 STOP LOSS ${sym}`);
 
-        await fetch(base+'/api/bitget',{
+        log(`🛑 STOP ${sym}`);
+
+        await fetch(endpoint,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -144,18 +139,19 @@ module.exports = async (req,res)=>{
         delete POS_STATE[sym];
         continue;
       }
-
     }
 
     // =========================
     // 🔥 ENTRADAS
     // =========================
 
-    if(positions.length === 0){
+    if(!positions || positions.length === 0){
 
-      for(const sym of settings.symbols){
+      const symbols = ['BTCUSDT'];
 
-        const candles = await (await fetch(base+'/api/bitget',{
+      for(const sym of symbols){
+
+        const candles = await (await fetch(endpoint,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -165,25 +161,25 @@ module.exports = async (req,res)=>{
           })
         })).json();
 
-        if(!candles.length) continue;
+        if(!candles || !candles.length) continue;
 
         const closes = candles.map(c=>+c[4]);
-        const price = closes.at(-1);
+        const price = closes[closes.length - 1];
 
         const features = buildFeatures(closes);
         const pred = await MLAPI.getPrediction(features);
 
         if(!pred || pred.confidence < 0.6){
+          log(`⏭️ SKIP ${sym}`);
           continue;
         }
 
         const side = closes.at(-1) > closes.at(-10) ? 'BUY' : 'SELL';
-
         const qty = ((balance * 0.005)/price).toFixed(4);
 
         log(`🚀 ${side} ${sym}`);
 
-        await fetch(base+'/api/bitget',{
+        await fetch(endpoint,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -200,10 +196,12 @@ module.exports = async (req,res)=>{
 
     await saveEquity(balance);
 
-    res.json({logs:LOGS});
+    return res.json({logs:LOGS});
 
   }catch(e){
+
     log(`🔥 ${e.message}`);
-    res.json({logs:LOGS});
+
+    return res.json({logs:LOGS});
   }
 };
