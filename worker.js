@@ -1,4 +1,4 @@
-const runBot = require('./cron');
+const runBot = require('./api/cron');
 
 function sleep(ms){
   return new Promise(r => setTimeout(r, ms));
