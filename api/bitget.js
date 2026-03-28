@@ -1,21 +1,59 @@
+const crypto = require('crypto');
+
 if(!global.settings){
   global.settings = { active:false };
 }
 
-if(!global.positions){
-  global.positions = [];
+const settings = global.settings;
+
+// ===== CONFIG
+const API_KEY = process.env.BITGET_API_KEY;
+const API_SECRET = process.env.BITGET_API_SECRET;
+const PASSPHRASE = process.env.BITGET_PASSPHRASE;
+
+const BASE = 'https://api.bitget.com';
+
+// ===== SIGN
+function sign(timestamp, method, path, body=''){
+  const msg = timestamp + method + path + body;
+  return crypto
+    .createHmac('sha256', API_SECRET)
+    .update(msg)
+    .digest('base64');
 }
 
-const settings = global.settings;
-const positions = global.positions;
+// ===== REQUEST
+async function request(path, method='GET', body=null){
 
+  const timestamp = Date.now().toString();
+
+  const bodyStr = body ? JSON.stringify(body) : '';
+
+  const headers = {
+    'ACCESS-KEY': API_KEY,
+    'ACCESS-SIGN': sign(timestamp, method, path, bodyStr),
+    'ACCESS-TIMESTAMP': timestamp,
+    'ACCESS-PASSPHRASE': PASSPHRASE,
+    'Content-Type': 'application/json'
+  };
+
+  const res = await fetch(BASE + path,{
+    method,
+    headers,
+    body: bodyStr || undefined
+  });
+
+  return res.json();
+}
+
+// ===== HANDLER
 module.exports = async (req,res)=>{
 
   try{
 
     const { action, symbol, side, quantity } = req.body || {};
 
-    // ===== SETTINGS
+    // SETTINGS
     if(action === 'getSettings'){
       return res.json(settings);
     }
@@ -25,41 +63,39 @@ module.exports = async (req,res)=>{
       return res.json(settings);
     }
 
-    // ===== BALANCE
+    // BALANCE
     if(action === 'balance'){
-      return res.json([{available:114.89}]);
+      const data = await request('/api/mix/v1/account/accounts?productType=UMCBL');
+      return res.json(data.data || []);
     }
 
-    // ===== POSITIONS
+    // POSITIONS
     if(action === 'positions'){
-      return res.json(positions);
+      const data = await request('/api/mix/v1/position/allPosition?productType=UMCBL');
+      return res.json(data.data || []);
     }
 
-    // ===== ORDER
+    // CANDLES
+    if(action === 'candles'){
+      const data = await request(`/api/mix/v1/market/candles?symbol=${symbol}&granularity=60&limit=100`);
+      return res.json(data.data || []);
+    }
+
+    // ===== 🔥 REAL ORDER
     if(action === 'order'){
 
-      const newPos = {
+      const body = {
         symbol,
-        holdSide: side === 'BUY' ? 'long' : 'short',
-        total: quantity,
-        unrealizedPL: 0
+        marginCoin: 'USDT',
+        size: quantity,
+        side: side.toLowerCase(),
+        orderType: 'market',
+        timeInForceValue: 'normal'
       };
 
-      positions.push(newPos);
+      const data = await request('/api/mix/v1/order/placeOrder','POST',body);
 
-      return res.json({ok:true, position:newPos});
-    }
-
-    // ===== CANDLES (FAKE PARA TESTE)
-    if(action === 'candles'){
-
-      let arr = [];
-
-      for(let i=0;i<100;i++){
-        arr.push([0,0,0,0,50000 + Math.random()*1000]);
-      }
-
-      return res.json(arr);
+      return res.json(data);
     }
 
     return res.json({error:'invalid action'});
