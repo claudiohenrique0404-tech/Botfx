@@ -79,15 +79,15 @@ module.exports = async (req,res)=>{
       return res.json(data.data || []);
     }
 
-    // ===== CANDLES (V2 CORRETO)
-if(action === 'candles'){
+    // ===== 🔥 CANDLES (FIX FINAL)
+    if(action === 'candles'){
 
-  const data = await request(
-    `/api/v2/mix/market/candles?symbol=${symbol}&granularity=60&limit=100`
-  );
+      const data = await request(
+        `/api/v2/mix/market/candles?symbol=${symbol}&granularity=60&limit=100`
+      );
 
-  return res.json(data.data || []);
-}
+      return res.json(data.data || []);
+    }
 
     // ===== ORDER (V2)
     if(action === 'order'){
