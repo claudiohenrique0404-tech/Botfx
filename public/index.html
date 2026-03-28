@@ -8,10 +8,38 @@
   <style>
     body{font-family:Arial;background:#020617;color:#e2e8f0;margin:0}
     header{padding:15px;text-align:center;color:#38bdf8;font-size:22px}
-    nav{display:flex;justify-content:space-around;background:#1e293b;padding:10px}
-    nav button{background:none;border:none;color:#94a3b8;cursor:pointer}
-    .tab{display:none;padding:20px}
-    .box{background:#1e293b;padding:15px;margin:10px;border-radius:10px}
+
+    nav{
+      display:flex;
+      justify-content:space-around;
+      background:#1e293b;
+      padding:10px;
+    }
+
+    nav button{
+      background:none;
+      border:none;
+      color:#94a3b8;
+      cursor:pointer;
+      font-size:15px;
+    }
+
+    nav button:hover{
+      color:#38bdf8;
+    }
+
+    .tab{
+      display:none;
+      padding:20px;
+    }
+
+    .box{
+      background:#1e293b;
+      padding:15px;
+      margin:10px;
+      border-radius:10px;
+    }
+
     .btn{
       padding:10px 15px;
       border:none;
@@ -19,9 +47,19 @@
       font-weight:bold;
       cursor:pointer;
     }
+
     .on{background:#22c55e;color:#000}
     .off{background:#ef4444;color:#000}
-    canvas{background:#fff;border-radius:10px}
+
+    canvas{
+      background:#fff;
+      border-radius:10px;
+    }
+
+    pre{
+      white-space:pre-wrap;
+      font-size:12px;
+    }
   </style>
 </head>
 <body>
@@ -35,6 +73,7 @@
   <button onclick="showTab('logs')">Logs</button>
 </nav>
 
+<!-- DASHBOARD -->
 <div id="dashboard" class="tab">
 
   <div class="box">
@@ -44,30 +83,33 @@
     <button id="toggleBtn" class="btn" onclick="toggleBot()">...</button>
   </div>
 
-  <div class="box">💰 Balance: <span id="balance"></span></div>
-  <div class="box">📊 PnL: <span id="pnl"></span></div>
-  <div class="box">🎯 Winrate: <span id="winrate"></span></div>
-  <div class="box">📉 Drawdown: <span id="drawdown"></span></div>
-  <div class="box">📐 Sharpe: <span id="sharpe"></span></div>
+  <div class="box">💰 Balance: <span id="balance">-</span></div>
+  <div class="box">📊 PnL: <span id="pnl">-</span></div>
+  <div class="box">🎯 Winrate: <span id="winrate">-</span></div>
+  <div class="box">📉 Drawdown: <span id="drawdown">-</span></div>
+  <div class="box">📐 Sharpe: <span id="sharpe">-</span></div>
 
 </div>
 
+<!-- PERFORMANCE -->
 <div id="performance" class="tab">
   <div class="box">
     <canvas id="equityChart"></canvas>
   </div>
 </div>
 
+<!-- BOTS -->
 <div id="bots" class="tab">
   <div class="box">
     <h3>🤖 Ranking Bots</h3>
-    <pre id="botsData"></pre>
+    <pre id="botsData">loading...</pre>
   </div>
 </div>
 
+<!-- LOGS -->
 <div id="logs" class="tab">
   <div class="box">
-    <pre id="logs"></pre>
+    <pre id="logsData">loading...</pre>
   </div>
 </div>
 
@@ -75,12 +117,13 @@
 
 let chart;
 
+// ===== NAV
 function showTab(id){
   document.querySelectorAll('.tab').forEach(t=>t.style.display='none');
   document.getElementById(id).style.display='block';
 }
 
-// 🔥 TOGGLE BOT
+// ===== TOGGLE BOT
 async function toggleBot(){
   await fetch('/api/bitget',{
     method:'POST',
@@ -89,96 +132,106 @@ async function toggleBot(){
   });
 }
 
-// 🔥 LOAD DATA
+// ===== LOAD DATA
 async function load(){
 
-  // ===== SETTINGS (estado do bot)
-  const settings = await (await fetch('/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'getSettings'})
-  })).json();
+  try{
 
-  const status = settings.active;
+    // ===== SETTINGS
+    const settings = await (await fetch('/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'getSettings'})
+    })).json();
 
-  const statusEl = document.getElementById('botStatus');
-  const btn = document.getElementById('toggleBtn');
+    const status = settings.active;
 
-  if(status){
-    statusEl.innerText = 'ATIVO';
-    statusEl.style.color = '#22c55e';
+    const statusEl = document.getElementById('botStatus');
+    const btn = document.getElementById('toggleBtn');
 
-    btn.innerText = 'DESLIGAR BOT';
-    btn.className = 'btn off';
-  }else{
-    statusEl.innerText = 'DESLIGADO';
-    statusEl.style.color = '#ef4444';
+    if(status){
+      statusEl.innerText = 'ATIVO';
+      statusEl.style.color = '#22c55e';
 
-    btn.innerText = 'LIGAR BOT';
-    btn.className = 'btn on';
-  }
+      btn.innerText = 'DESLIGAR BOT';
+      btn.className = 'btn off';
+    }else{
+      statusEl.innerText = 'DESLIGADO';
+      statusEl.style.color = '#ef4444';
 
-  // ===== STATS
-  const stats = await (await fetch('/api/stats')).json();
-
-  document.getElementById('winrate').innerText =
-    (stats.winrate*100).toFixed(2)+'%';
-
-  document.getElementById('drawdown').innerText =
-    (stats.drawdown*100).toFixed(2)+'%';
-
-  document.getElementById('sharpe').innerText =
-    stats.sharpe.toFixed(2);
-
-  document.getElementById('botsData').innerText =
-    JSON.stringify(stats.botRanking,null,2);
-
-  // ===== EQUITY CHART
-  const labels = stats.equity.map(e=>new Date(e.time).toLocaleTimeString());
-  const data = stats.equity.map(e=>e.value);
-
-  if(chart) chart.destroy();
-
-  chart = new Chart(document.getElementById('equityChart'),{
-    type:'line',
-    data:{
-      labels,
-      datasets:[{
-        label:'Equity',
-        data
-      }]
+      btn.innerText = 'LIGAR BOT';
+      btn.className = 'btn on';
     }
-  });
 
-  // ===== LOGS
-  const logs = await (await fetch('/api/cron')).json();
-  document.getElementById('logs').innerText =
-    logs.logs.join('\n');
+    // ===== STATS
+    const stats = await (await fetch('/api/stats')).json();
 
-  // ===== BALANCE
-  const bal = await (await fetch('/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'balance'})
-  })).json();
+    document.getElementById('winrate').innerText =
+      (stats.winrate*100).toFixed(2)+'%';
 
-  const balance = parseFloat(bal[0]?.available || 0);
+    document.getElementById('drawdown').innerText =
+      (stats.drawdown*100).toFixed(2)+'%';
 
-  document.getElementById('balance').innerText =
-    '$'+balance.toFixed(2);
+    document.getElementById('sharpe').innerText =
+      stats.sharpe.toFixed(2);
 
-  // ===== PNL
-  if(stats.equity.length){
-    const start = stats.equity[0].value;
-    const last = stats.equity.at(-1).value;
+    document.getElementById('botsData').innerText =
+      JSON.stringify(stats.botRanking,null,2);
 
-    const pnl = ((last-start)/start*100).toFixed(2);
+    // ===== EQUITY CHART
+    const labels = stats.equity.map(e=>new Date(e.time).toLocaleTimeString());
+    const data = stats.equity.map(e=>e.value);
 
-    document.getElementById('pnl').innerText = pnl+'%';
+    if(chart) chart.destroy();
+
+    chart = new Chart(document.getElementById('equityChart'),{
+      type:'line',
+      data:{
+        labels,
+        datasets:[{
+          label:'Equity',
+          data
+        }]
+      }
+    });
+
+    // ===== LOGS
+    const logs = await (await fetch('/api/cron')).json();
+
+    document.getElementById('logsData').innerText =
+      (logs.logs || []).join('\n');
+
+    // ===== BALANCE
+    const bal = await (await fetch('/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'balance'})
+    })).json();
+
+    const balance = parseFloat(bal[0]?.available || 0);
+
+    document.getElementById('balance').innerText =
+      '$'+balance.toFixed(2);
+
+    // ===== PNL
+    if(stats.equity.length){
+      const start = stats.equity[0].value;
+      const last = stats.equity.at(-1).value;
+
+      const pnl = ((last-start)/start*100).toFixed(2);
+
+      document.getElementById('pnl').innerText = pnl+'%';
+    }
+
+  }catch(e){
+    console.log('ERROR:', e);
   }
 }
 
+// ===== AUTO REFRESH
 setInterval(load,3000);
+
+// ===== INIT
 showTab('dashboard');
 
 </script>
