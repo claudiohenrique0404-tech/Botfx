@@ -15,10 +15,12 @@ function updateBot(bot, pnl){
 function getWeight(bot){
 
   const s = BOT_STATS[bot];
-
   const total = s.wins + s.losses;
 
-  return s.wins / total; // winrate
+  if(total === 0) return 0.5;
+
+  // 🔥 suavização (evita extremos)
+  return Math.max(0.2, Math.min(0.8, s.wins / total));
 }
 
 function getWeights(){
