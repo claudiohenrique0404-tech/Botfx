@@ -1,15 +1,27 @@
 const { createHmac } = require('crypto');
+const fetch = global.fetch || require('node-fetch');
 
 const BASE = 'https://api.bitget.com';
 
-// memória simples (substitui DB)
-let BOT_SETTINGS = {
-  risk: 1,
-  lev: 3,
-  tp: 2,
-  sl: 1.5
-};
+// 🔥 SETTINGS GLOBAIS
+if(!global.BOT_SETTINGS){
+  global.BOT_SETTINGS = {
+    active: false,
+    risk: 1,
+    lev: 3,
+    symbols: ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT']
+  };
+}
 
+function getSettings(){
+  return global.BOT_SETTINGS;
+}
+
+function setSettings(newSettings){
+  global.BOT_SETTINGS = { ...global.BOT_SETTINGS, ...newSettings };
+}
+
+// ===== SIGN =====
 function sign(ts, method, path, body, secret) {
   return createHmac('sha256', secret)
     .update(ts + method.toUpperCase() + path + (body || ''))
@@ -17,98 +29,107 @@ function sign(ts, method, path, body, secret) {
 }
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  try{
 
-  const KEY  = process.env.BITGET_API_KEY;
-  const SEC  = process.env.BITGET_API_SECRET;
-  const PASS = process.env.BITGET_PASSPHRASE;
+    // 🔥 FIX BODY VERCEL (CRÍTICO)
+    let body = req.body;
 
-  const headers = (method, path, body) => {
-    const ts = Date.now().toString();
-    return {
-      'ACCESS-KEY': KEY,
-      'ACCESS-SIGN': sign(ts, method, path, body || '', SEC),
-      'ACCESS-TIMESTAMP': ts,
-      'ACCESS-PASSPHRASE': PASS,
-      'Content-Type': 'application/json'
+    if (!body || typeof body === "string") {
+      try {
+        body = JSON.parse(req.body);
+      } catch {
+        body = {};
+      }
+    }
+
+    const { action, ...p } = body;
+
+    const KEY  = process.env.BITGET_API_KEY;
+    const SEC  = process.env.BITGET_API_SECRET;
+    const PASS = process.env.BITGET_PASSPHRASE;
+
+    if (!KEY || !SEC || !PASS) {
+      return res.status(500).json({ error: 'Missing API keys' });
+    }
+
+    const headers = (method, path, body) => {
+      const ts = Date.now().toString();
+      return {
+        'ACCESS-KEY': KEY,
+        'ACCESS-SIGN': sign(ts, method, path, body || '', SEC),
+        'ACCESS-TIMESTAMP': ts,
+        'ACCESS-PASSPHRASE': PASS,
+        'Content-Type': 'application/json'
+      };
     };
-  };
 
-  const bg = async (method, path, body) => {
-    const bs = body ? JSON.stringify(body) : undefined;
-    const r = await fetch(BASE + path, { method, headers: headers(method, path, bs), body: bs });
-    const d = await r.json();
+    const bg = async (method, path) => {
+      const r = await fetch(BASE + path, {
+        method,
+        headers: headers(method, path)
+      });
+      return await r.json();
+    };
 
-    if (!d || d.code !== '00000') {
-      throw new Error(d?.msg || 'Bitget error');
-    }
-
-    return d;
-  };
-
-  try {
-    const { action, ...p } = req.body || {};
-
-    // SETTINGS
+    // ===== SETTINGS =====
     if (action === 'getSettings') {
-      return res.json(BOT_SETTINGS);
+      return res.json(getSettings());
     }
 
-    if (action === 'setSettings') {
-      BOT_SETTINGS = { ...BOT_SETTINGS, ...p };
-      return res.json({ ok: true });
+    if (action === 'toggleBot') {
+      const current = getSettings().active;
+      setSettings({ active: !current });
+      return res.json({ active: !current });
     }
 
-    // PREÇOS
-    if (action === 'allPrices') {
-      const r = await fetch(`${BASE}/api/v2/mix/market/tickers?productType=usdt-futures`);
+    // ===== BALANCE =====
+    if (action === 'balance') {
+      const d = await bg('GET','/api/v2/mix/account/accounts?productType=USDT-FUTURES');
+      return res.json(d.data || []);
+    }
+
+    // ===== CANDLES =====
+    if (action === 'candles') {
+      const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=USDT-FUTURES&granularity=${p.tf}&limit=100`;
+      const r = await fetch(url);
       const d = await r.json();
-
-      return res.json(
-        d.data.map(x => ({
-          symbol: x.symbol,
-          price: parseFloat(x.lastPr || x.last)
-        })).filter(x => x.price > 0)
-      );
+      return res.json(d.data || []);
     }
 
-    // POSIÇÕES
+    // ===== POSITIONS =====
     if (action === 'positions') {
-      const data = await bg('GET', '/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT');
-      return res.json(data.data || []);
+      const d = await bg('GET','/api/v2/mix/position/all-position?productType=USDT-FUTURES');
+      return res.json(d.data || []);
     }
 
-    // HISTÓRICO
-    if (action === 'history') {
-      const data = await bg('GET', '/api/v2/mix/order/history-orders?productType=USDT-FUTURES&pageSize=50');
-      return res.json(data.data || []);
-    }
-
-    // ORDEM
+    // ===== ORDER =====
     if (action === 'order') {
-      const { symbol, side, quantity } = p;
 
-      const result = await bg('POST', '/api/v2/mix/order/place-order', {
-        symbol,
+      const body = JSON.stringify({
+        symbol: p.symbol,
         productType: 'USDT-FUTURES',
         marginCoin: 'USDT',
-        side: side === 'BUY' ? 'buy' : 'sell',
+        marginMode: 'isolated',
+        side: p.side === 'BUY' ? 'buy' : 'sell',
         tradeSide: 'open',
         orderType: 'market',
-        size: String(quantity),
-        leverage: String(BOT_SETTINGS.lev)
+        size: String(p.quantity),
+        leverage: "3"
       });
 
-      return res.json(result);
+      const r = await fetch(BASE + '/api/v2/mix/order/place-order', {
+        method: 'POST',
+        headers: headers('POST','/api/v2/mix/order/place-order', body),
+        body
+      });
+
+      return res.json(await r.json());
     }
 
-    return res.status(400).json({ error: 'Unknown action' });
+    return res.status(400).json({ error:'Invalid action' });
 
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+  }catch(e){
+    return res.status(500).json({ error:e.message });
   }
 };
