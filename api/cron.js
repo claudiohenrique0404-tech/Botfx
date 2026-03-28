@@ -21,16 +21,15 @@ module.exports = async (req,res)=>{
 
   try{
 
-    // ===== LOGS MODE
     if(req.query.mode === 'logs'){
       return res.json({logs:LOGS});
     }
 
-    // 🔥 LOCAL (SEM URL EXTERNO)
-    const endpoint = '/api/bitget';
+    // 🔥 URL BASE DINÂMICA (FIX)
+    const base = `https://${req.headers.host}`;
 
     // ===== BALANCE
-    const balanceData = await (await fetch(endpoint,{
+    const balanceData = await (await fetch(base + '/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'balance'})
@@ -39,7 +38,7 @@ module.exports = async (req,res)=>{
     const balance = parseFloat(balanceData?.[0]?.available || 0);
 
     // ===== POSITIONS
-    const positions = await (await fetch(endpoint,{
+    const positions = await (await fetch(base + '/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
@@ -71,20 +70,18 @@ module.exports = async (req,res)=>{
 
       log(`📊 ${sym} pnl:${pnl.toFixed(2)} max:${state.maxPnl.toFixed(2)}`);
 
-      // BREAK EVEN
       if(pnl > 1 && !state.breakeven){
         state.breakeven = true;
         log(`🟢 BREAK EVEN ${sym}`);
       }
 
-      // PARTIAL CLOSE
       if(pnl > 2 && !state.partialClosed){
 
         const half = (size * 0.5).toFixed(4);
 
         log(`✂️ PARTIAL ${sym}`);
 
-        await fetch(endpoint,{
+        await fetch(base + '/api/bitget',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -98,14 +95,13 @@ module.exports = async (req,res)=>{
         state.partialClosed = true;
       }
 
-      // TRAILING
       const trail = state.maxPnl - 1.5;
 
       if(state.maxPnl > 2 && pnl < trail){
 
         log(`📉 TRAILING ${sym}`);
 
-        await fetch(endpoint,{
+        await fetch(base + '/api/bitget',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -120,12 +116,11 @@ module.exports = async (req,res)=>{
         continue;
       }
 
-      // STOP LOSS
       if(pnl < -1.5){
 
         log(`🛑 STOP ${sym}`);
 
-        await fetch(endpoint,{
+        await fetch(base + '/api/bitget',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -151,7 +146,7 @@ module.exports = async (req,res)=>{
 
       for(const sym of symbols){
 
-        const candles = await (await fetch(endpoint,{
+        const candles = await (await fetch(base + '/api/bitget',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -164,7 +159,7 @@ module.exports = async (req,res)=>{
         if(!candles || !candles.length) continue;
 
         const closes = candles.map(c=>+c[4]);
-        const price = closes[closes.length - 1];
+        const price = closes.at(-1);
 
         const features = buildFeatures(closes);
         const pred = await MLAPI.getPrediction(features);
@@ -179,7 +174,7 @@ module.exports = async (req,res)=>{
 
         log(`🚀 ${side} ${sym}`);
 
-        await fetch(endpoint,{
+        await fetch(base + '/api/bitget',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
@@ -199,9 +194,7 @@ module.exports = async (req,res)=>{
     return res.json({logs:LOGS});
 
   }catch(e){
-
     log(`🔥 ${e.message}`);
-
     return res.json({logs:LOGS});
   }
 };
