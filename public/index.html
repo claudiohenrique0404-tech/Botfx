@@ -1,144 +1,168 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt">
 <head>
-  <title>Bot Debug</title>
-
+  <meta charset="UTF-8">
+  <title>Bot Trading Dashboard</title>
   <style>
-    body{
-      background:#0f172a;
-      color:white;
-      font-family:Arial;
-      margin:0;
-      padding:20px;
-    }
-
-    h2{
-      text-align:center;
-    }
-
-    .box{
-      background:#1e293b;
-      padding:15px;
-      margin:10px 0;
-      border-radius:10px;
-    }
-
-    button{
-      padding:10px;
-      font-weight:bold;
-      cursor:pointer;
-    }
-
-    pre{
-      white-space:pre-wrap;
-      font-size:12px;
-    }
+    body { font-family: Arial; background:#0f172a; color:#e2e8f0; padding:20px; }
+    h1 { margin-bottom:10px; }
+    .box { background:#1e293b; padding:15px; margin-bottom:15px; border-radius:10px; }
+    .log { font-size:12px; max-height:200px; overflow:auto; }
+    .green { color:#22c55e; }
+    .red { color:#ef4444; }
   </style>
 </head>
-
 <body>
 
-<h2>🤖 BOT DEBUG</h2>
+<h1>📊 Bot Trading</h1>
 
 <div class="box">
-  Estado: <span id="status">...</span><br><br>
-  <button onclick="toggleBot()">ON / OFF</button>
+  <h3>Posições</h3>
+  <div id="positions"></div>
 </div>
 
 <div class="box">
-  💰 Balance:
-  <pre id="balance">loading...</pre>
+  <h3>Movimentos</h3>
+  <div id="trades"></div>
 </div>
 
 <div class="box">
-  📊 Posições:
-  <pre id="positions">loading...</pre>
-</div>
-
-<div class="box">
-  📡 Logs:
-  <pre id="logs">loading...</pre>
+  <h3>Logs</h3>
+  <div id="logs" class="log"></div>
 </div>
 
 <script>
+const S = {
+  positions: [],
+  closed: [],
+  logs: [],
+  isLive: true
+};
 
-let running = false;
+// LOG
+function addLog(msg, type='info') {
+  S.logs.unshift({ msg, type, time:new Date().toLocaleTimeString() });
+  renderLogs();
+}
 
-// ===== TOGGLE BOT
-async function toggleBot(){
-  try{
-    await fetch('/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'toggleBot'})
-    });
-  }catch(e){
-    console.log(e);
+// GUARDAR TRADE
+function saveTrade(trade) {
+  try {
+    if (!trade || !trade.symbol) {
+      addLog('❌ Trade inválido', 'error');
+      return;
+    }
+
+    const exists = S.closed.find(t => t.symbol === trade.symbol && !t.exit);
+    if (exists) {
+      addLog(`⚠️ Duplicado ignorado: ${trade.symbol}`, 'warn');
+      return;
+    }
+
+    const t = {
+      id: Date.now(),
+      symbol: trade.symbol,
+      side: trade.side || 'UNKNOWN',
+      entry: Number(trade.entry) || 0,
+      exit: Number(trade.exit) || 0,
+      pnl: Number(trade.pnl) || 0,
+      time: new Date().toLocaleTimeString()
+    };
+
+    S.closed.unshift(t);
+    addLog(`📊 Movimento guardado: ${t.symbol}`, 'trade');
+    renderTrades();
+
+  } catch (e) {
+    addLog('❌ Erro ao guardar trade', 'error');
   }
 }
 
-// ===== LOOP PRINCIPAL
-async function loop(){
-
-  if(running) return;
-  running = true;
-
-  try{
-
-    // STATUS
-    const s = await (await fetch('/api/bitget',{
+// FETCH POSIÇÕES
+async function syncPositions() {
+  try {
+    const res = await fetch('/api/bitget', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'getSettings'})
-    })).json();
+      body:JSON.stringify({ action:'positions' })
+    });
 
-    document.getElementById('status').innerText =
-      s.active ? 'ATIVO' : 'DESLIGADO';
+    const data = await res.json();
 
-    // 🔥 EXECUTA BOT
-    if(s.active){
-      await fetch('/api/cron');
+    if (!Array.isArray(data)) {
+      addLog('❌ erro posições', 'error');
+      return;
     }
 
-    // BALANCE
-    const bal = await (await fetch('/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'balance'})
-    })).json();
+    S.positions = data.map(p => ({
+      symbol: p.symbol,
+      side: p.holdSide,
+      size: parseFloat(p.total),
+      entry: parseFloat(p.openPriceAvg),
+      pnl: parseFloat(p.unrealizedPL || 0)
+    }));
 
-    document.getElementById('balance').innerText =
-      JSON.stringify(bal, null, 2);
+    renderPositions();
 
-    // POSITIONS
-    const pos = await (await fetch('/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'positions'})
-    })).json();
-
-    document.getElementById('positions').innerText =
-      JSON.stringify(pos, null, 2);
-
-    // LOGS
-    const logs = await (await fetch('/api/cron?mode=logs')).json();
-
-    document.getElementById('logs').innerText =
-      (logs.logs || []).join('\n');
-
-  }catch(e){
-    console.log('ERROR:', e);
+  } catch(e) {
+    addLog('❌ sync falhou', 'error');
   }
+}
 
-  running = false;
+// RENDER
+function renderPositions() {
+  const el = document.getElementById('positions');
+  el.innerHTML = S.positions.map(p => `
+    <div>
+      ${p.symbol} | ${p.side} | ${p.size} |
+      <span class="${p.pnl>=0?'green':'red'}">${p.pnl.toFixed(2)}</span>
+    </div>
+  `).join('');
+}
+
+function renderTrades() {
+  const el = document.getElementById('trades');
+  el.innerHTML = S.closed.map(t => `
+    <div>
+      ${t.symbol} | ${t.side} |
+      PnL: <span class="${t.pnl>=0?'green':'red'}">${t.pnl}</span>
+    </div>
+  `).join('');
+}
+
+function renderLogs() {
+  const el = document.getElementById('logs');
+  el.innerHTML = S.logs.slice(0,50).map(l => `
+    <div>[${l.time}] ${l.msg}</div>
+  `).join('');
+}
+
+// MOCK FECHO TRADE (para testar)
+function simulateClose() {
+  if (S.positions.length === 0) return;
+
+  const p = S.positions[0];
+
+  saveTrade({
+    symbol: p.symbol,
+    side: p.side,
+    entry: p.entry,
+    exit: p.entry * (Math.random()*0.02 + 0.99),
+    pnl: (Math.random()*2 - 1).toFixed(2)
+  });
 }
 
 // LOOP
-setInterval(loop, 4000);
+setInterval(() => {
+  syncPositions();
+}, 5000);
 
-// INIT
-loop();
+// simulação
+setInterval(() => {
+  simulateClose();
+}, 15000);
 
+addLog('🚀 Bot iniciado');
 </script>
 
 </body>
