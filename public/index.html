@@ -3,114 +3,23 @@
 <head>
   <title>Trading Desk</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <style>
-    body{
-      background:#0f172a;
-      color:white;
-      font-family:Arial;
-      margin:0;
-    }
-
-    h2{
-      text-align:center;
-      padding:15px;
-    }
-
-    nav{
-      display:flex;
-      justify-content:space-around;
-      background:#1e293b;
-      padding:10px;
-    }
-
-    nav button{
-      background:none;
-      border:none;
-      color:#94a3b8;
-      cursor:pointer;
-    }
-
-    .tab{
-      display:none;
-      padding:20px;
-    }
-
-    .box{
-      background:#1e293b;
-      padding:15px;
-      margin:10px;
-      border-radius:10px;
-    }
-
-    .btn{
-      padding:10px;
-      border:none;
-      cursor:pointer;
-      font-weight:bold;
-    }
-
-    .on{background:#22c55e;color:black;}
-    .off{background:#ef4444;color:black;}
-
-    pre{
-      font-size:12px;
-      white-space:pre-wrap;
-    }
-
-    canvas{
-      background:white;
-      border-radius:10px;
-    }
-  </style>
 </head>
 
-<body>
+<body style="background:#0f172a;color:white;font-family:Arial">
 
 <h2>🤖 Trading Desk</h2>
 
-<nav>
-  <button onclick="showTab('dashboard')">Dashboard</button>
-  <button onclick="showTab('logs')">Logs</button>
-</nav>
+<button onclick="toggleBot()" id="btn">...</button>
 
-<!-- DASHBOARD -->
-<div id="dashboard" class="tab">
+<h3>📈 Equity</h3>
+<canvas id="chart"></canvas>
 
-  <div class="box">
-    Estado:
-    <span id="status">...</span>
-    <br><br>
-    <button id="btn" class="btn" onclick="toggleBot()">...</button>
-  </div>
-
-  <div class="box">
-    💰 Balance: <span id="balance">-</span>
-  </div>
-
-  <div class="box">
-    📈 Equity
-    <canvas id="chart"></canvas>
-  </div>
-
-</div>
-
-<!-- LOGS -->
-<div id="logs" class="tab">
-  <div class="box">
-    <pre id="logsData">loading...</pre>
-  </div>
-</div>
+<h3>📡 Logs</h3>
+<pre id="logs"></pre>
 
 <script>
 
 let chart;
-
-// ===== NAV
-function showTab(id){
-  document.querySelectorAll('.tab').forEach(t=>t.style.display='none');
-  document.getElementById(id).style.display='block';
-}
 
 // ===== TOGGLE
 async function toggleBot(){
@@ -124,82 +33,45 @@ async function toggleBot(){
 // ===== LOAD
 async function load(){
 
-  try{
+  // SETTINGS
+  const s = await (await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'getSettings'})
+  })).json();
 
-    // ===== SETTINGS
-    const s = await (await fetch('/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'getSettings'})
-    })).json();
+  document.getElementById('btn').innerText =
+    s.active ? 'DESLIGAR BOT' : 'LIGAR BOT';
 
-    const statusEl = document.getElementById('status');
-    const btn = document.getElementById('btn');
-
-    if(s.active){
-      statusEl.innerText = 'ATIVO';
-      statusEl.style.color = '#22c55e';
-
-      btn.innerText = 'DESLIGAR BOT';
-      btn.className = 'btn off';
-    }else{
-      statusEl.innerText = 'DESLIGADO';
-      statusEl.style.color = '#ef4444';
-
-      btn.innerText = 'LIGAR BOT';
-      btn.className = 'btn on';
-    }
-
-    // ===== BALANCE
-    const bal = await (await fetch('/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'balance'})
-    })).json();
-
-    const balance = parseFloat(bal[0]?.available || 0);
-
-    document.getElementById('balance').innerText =
-      '$'+balance.toFixed(2);
-
-    // ===== EQUITY
-    const stats = await (await fetch('/api/stats')).json();
-
-    const labels = stats.equity.map(e=>
-      new Date(e.time).toLocaleTimeString()
-    );
-
-    const data = stats.equity.map(e=>e.value);
-
-    if(chart) chart.destroy();
-
-    chart = new Chart(document.getElementById('chart'),{
-      type:'line',
-      data:{
-        labels,
-        datasets:[{
-          label:'Equity',
-          data
-        }]
-      }
-    });
-
-    // ===== LOGS (🔥 FIX AQUI)
-    const logs = await (await fetch('/api/cron?mode=logs')).json();
-
-    document.getElementById('logsData').innerText =
-      (logs.logs || []).join('\n');
-
-  }catch(e){
-    console.log('ERROR:', e);
+  // 🔥 EXECUTA BOT (IMPORTANTE)
+  if(s.active){
+    await fetch('/api/cron');
   }
+
+  // STATS
+  const stats = await (await fetch('/api/stats')).json();
+
+  const labels = stats.equity.map(e=>new Date(e.time).toLocaleTimeString());
+  const data = stats.equity.map(e=>e.value);
+
+  if(chart) chart.destroy();
+
+  chart = new Chart(document.getElementById('chart'),{
+    type:'line',
+    data:{
+      labels,
+      datasets:[{label:'Equity',data}]
+    }
+  });
+
+  // 🔥 LOGS (SEM EXECUTAR BOT)
+  const logs = await (await fetch('/api/cron?mode=logs')).json();
+
+  document.getElementById('logs').innerText =
+    (logs.logs || []).join('\n');
 }
 
-// ===== REFRESH
 setInterval(load,3000);
-
-// ===== INIT
-showTab('dashboard');
 
 </script>
 
