@@ -1,4 +1,6 @@
+const MLAPI = require('./ml-client');
 const { saveEquity } = require('./db');
+const { buildFeatures } = require('./features');
 
 if(!global.LOGS) global.LOGS = [];
 
@@ -31,8 +33,6 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData?.[0]?.available || 0);
 
-    log(`💰 Balance ${balance}`);
-
     // ===== POSITIONS
     const positions = await (await fetch(base + '/api/bitget',{
       method:'POST',
@@ -40,26 +40,117 @@ module.exports = async (req,res)=>{
       body:JSON.stringify({action:'positions'})
     })).json();
 
+    log(`💰 Balance ${balance}`);
     log(`📊 Positions ${positions.length}`);
 
     // =========================
-    // 🔥 TESTE FORÇADO
+    // 🔥 SE NÃO HÁ POSIÇÕES → ANALISAR
     // =========================
 
     if(positions.length === 0){
 
-      const price = 50000; // fake price para teste
-      const qty = ((balance * 0.001)/price).toFixed(4);
+      const symbol = 'BTCUSDT';
 
-      log(`🧪 TEST TRADE BUY BTCUSDT`);
+      const candles = await (await fetch(base + '/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'candles',
+          symbol,
+          tf:'1m'
+        })
+      })).json();
+
+      if(!candles || !candles.length){
+        log(`❌ Sem dados de mercado`);
+        return res.json({logs:LOGS});
+      }
+
+      const closes = candles.map(c=>+c[4]);
+
+      // =========================
+      // 🤖 BOT TREND
+      // =========================
+
+      const trendUp = closes.at(-1) > closes.at(-20);
+      log(`📈 TrendBot: ${trendUp ? 'UPTREND' : 'DOWNTREND'}`);
+
+      // =========================
+      // 🤖 BOT MEAN REVERSION
+      // =========================
+
+      const avg = closes.slice(-20).reduce((a,b)=>a+b,0)/20;
+      const deviation = closes.at(-1) - avg;
+
+      let meanSignal = null;
+
+      if(deviation > 50){
+        meanSignal = 'SELL';
+      }else if(deviation < -50){
+        meanSignal = 'BUY';
+      }
+
+      log(`📊 MeanBot: deviation ${deviation.toFixed(2)} → ${meanSignal || 'NEUTRAL'}`);
+
+      // =========================
+      // 🤖 BOT ML
+      // =========================
+
+      const features = buildFeatures(closes);
+      const pred = await MLAPI.getPrediction(features);
+
+      let mlSignal = null;
+
+      if(pred && pred.confidence > 0.6){
+        mlSignal = pred.direction;
+      }
+
+      log(`🧠 MLBot: ${mlSignal || 'NO SIGNAL'} (${(pred?.confidence||0).toFixed(2)})`);
+
+      // =========================
+      // 🤖 VOTAÇÃO
+      // =========================
+
+      let votes = {BUY:0, SELL:0};
+
+      if(trendUp) votes.BUY++; else votes.SELL++;
+      if(meanSignal) votes[meanSignal]++;
+      if(mlSignal) votes[mlSignal]++;
+
+      log(`🗳️ Votes → BUY:${votes.BUY} SELL:${votes.SELL}`);
+
+      let final = null;
+
+      if(votes.BUY > votes.SELL) final = 'BUY';
+      if(votes.SELL > votes.BUY) final = 'SELL';
+
+      if(!final){
+        log(`⏸️ Sem consenso`);
+        return res.json({logs:LOGS});
+      }
+
+      // =========================
+      // 💰 RISK MANAGER
+      // =========================
+
+      const price = closes.at(-1);
+      const qty = ((balance * 0.005)/price).toFixed(4);
+
+      log(`⚖️ Risk: size ${qty}`);
+
+      // =========================
+      // 🚀 EXECUÇÃO
+      // =========================
+
+      log(`🚀 EXECUTAR ${final} ${symbol}`);
 
       await fetch(base + '/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'order',
-          symbol:'BTCUSDT',
-          side:'BUY',
+          symbol,
+          side:final,
           quantity:qty
         })
       });
