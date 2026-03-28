@@ -3,14 +3,24 @@ const BRAIN = require('./brain');
 
 module.exports = async (req,res)=>{
 
-  const { symbol, pnl, bots=[] } = req.body;
+  try{
 
-  updateTradeResult(symbol, pnl);
+    const { id, pnl, bots=[] } = req.body;
 
-  // 🔥 RL UPDATE
-  for(const b of bots){
-    BRAIN.updateBot(b, pnl);
+    if(!id || typeof pnl !== 'number'){
+      return res.status(400).json({ error: 'invalid data' });
+    }
+
+    updateTradeResult(id, pnl);
+
+    // 🔥 RL UPDATE (seguro)
+    for(const b of bots){
+      if(b) BRAIN.updateBot(b, pnl);
+    }
+
+    res.json({ok:true});
+
+  }catch(e){
+    res.status(500).json({ error: e.message });
   }
-
-  res.json({ok:true});
 };
