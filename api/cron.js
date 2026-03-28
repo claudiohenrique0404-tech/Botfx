@@ -4,13 +4,18 @@ const { saveTrade, saveEquity } = require('./db');
 const { buildFeatures } = require('./features');
 const BRAIN = require('./brain');
 
-let LOGS = [];
+// 🔥 LOGS PERSISTENTES
+if(!global.LOGS){
+  global.LOGS = [];
+}
+let LOGS = global.LOGS;
+
 let LAST_TRADE = 0;
 let TRADES_TODAY = 0;
 let START_BALANCE = null;
 
 const MAX_TRADES_DAY = 10;
-const MAX_DAILY_LOSS = -3; // %
+const MAX_DAILY_LOSS = -3;
 
 function log(msg){
   const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
@@ -21,7 +26,7 @@ function log(msg){
   if(LOGS.length > 200) LOGS.pop();
 }
 
-// ===== CONSENSO FORTE
+// ===== CONSENSO
 function analyzeBots(closes){
 
   const signals = {
@@ -90,13 +95,13 @@ module.exports = async (req,res)=>{
 
     // 🚨 KILL SWITCH
     if(pnlDay <= MAX_DAILY_LOSS){
-      log('🛑 KILL SWITCH ATIVADO');
+      log('🛑 KILL SWITCH');
       return res.json({logs:LOGS});
     }
 
-    // 🚫 LIMITE DE TRADES
+    // 🚫 LIMITES
     if(TRADES_TODAY >= MAX_TRADES_DAY){
-      log('⏸ LIMITE DE TRADES ATINGIDO');
+      log('⏸ LIMITE ATINGIDO');
       return res.json({logs:LOGS});
     }
 
@@ -142,7 +147,6 @@ module.exports = async (req,res)=>{
 
       log(`🧠 ML: ${pred.confidence.toFixed(2)}`);
 
-      // 🔥 FILTRO CONSERVADOR
       if(pred.confidence < 0.55){
         log('❌ ML fraco');
         continue;
@@ -151,21 +155,18 @@ module.exports = async (req,res)=>{
       const decision = analyzeBots(closes);
 
       if(!decision){
-        log('❌ sem consenso forte');
+        log('❌ sem consenso');
         continue;
       }
 
       const now = Date.now();
 
-      // ⏱ COOLDOWN MAIS LONGO
       if(now - LAST_TRADE < 15000){
         log('⏱ cooldown');
         continue;
       }
 
-      // 🔥 RISCO BAIXO
-      const risk = 0.005; // 0.5%
-
+      const risk = 0.005;
       const qty = ((balance * risk)/price).toFixed(4);
 
       log(`⚖️ qty:${qty}`);
