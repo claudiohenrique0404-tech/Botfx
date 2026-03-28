@@ -7,18 +7,58 @@ let LOGS = [];
 let LAST_TRADE = 0;
 
 let TRACKING = {};
+let BOT_SCORE = {
+  trend:1,
+  rsi:1,
+  momentum:1
+};
 
-const BREAK_EVEN = 0.25;
-const PARTIAL_TP = 0.6;
-const TRAIL_START = 0.8;
+const MAX_DAILY_LOSS = -3;
+let START_BALANCE = null;
 
 function log(msg){
-  const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
-  const entry = `[${time}] ${msg}`;
-  console.log(entry);
+  const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
+  const e = `[${t}] ${msg}`;
+  console.log(e);
+  LOGS.unshift(e);
+  if(LOGS.length>150) LOGS.pop();
+}
 
-  LOGS.unshift(entry);
-  if(LOGS.length > 150) LOGS.pop();
+function normalize(){
+  const total = Object.values(BOT_SCORE).reduce((a,b)=>a+b,0);
+  let w={};
+  for(const k in BOT_SCORE){
+    w[k]=BOT_SCORE[k]/total;
+  }
+  return w;
+}
+
+function consensus(closes){
+
+  const w = normalize();
+
+  const signals = {
+    trend: STRAT.trendBot(closes),
+    rsi: STRAT.rsiBot(closes),
+    momentum: STRAT.momentumBot(closes)
+  };
+
+  let buy=0, sell=0;
+
+  for(const k in signals){
+    const s = signals[k];
+    if(!s) continue;
+
+    if(s.side==='BUY') buy += s.confidence * w[k];
+    if(s.side==='SELL') sell += s.confidence * w[k];
+  }
+
+  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
+
+  if(buy > 0.7) return 'BUY';
+  if(sell > 0.7) return 'SELL';
+
+  return null;
 }
 
 module.exports = async (req,res)=>{
@@ -46,7 +86,16 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 ${balance.toFixed(2)}`);
+    if(!START_BALANCE) START_BALANCE = balance;
+
+    const pnlDay = ((balance-START_BALANCE)/START_BALANCE)*100;
+
+    log(`💰 ${balance.toFixed(2)} | PnL: ${pnlDay.toFixed(2)}%`);
+
+    if(pnlDay <= MAX_DAILY_LOSS){
+      log('🛑 KILL SWITCH');
+      return res.json({logs:LOGS});
+    }
 
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
@@ -54,7 +103,7 @@ module.exports = async (req,res)=>{
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== GESTÃO =====
+    // ===== GESTÃO POSIÇÕES SIMPLIFICADA (já tens sistema forte)
     for(const p of positions){
 
       const sym = p.symbol;
@@ -62,68 +111,17 @@ module.exports = async (req,res)=>{
       const price = parseFloat(p.markPrice || p.last);
       const side = p.holdSide;
 
-      if(!entry || !price) continue;
+      let pnl = side==='long'
+        ? ((price-entry)/entry)*100
+        : ((entry-price)/entry)*100;
 
-      let pnl = side === 'long'
-        ? ((price - entry)/entry)*100
-        : ((entry - price)/entry)*100;
-
-      log(`📊 ${sym} ${pnl.toFixed(2)}%`);
-
-      if(!TRACKING[sym]){
-        TRACKING[sym] = {
-          maxPnL: pnl,
-          breakEven: false,
-          partial: false
-        };
-      }
-
-      const t = TRACKING[sym];
-
-      if(pnl > t.maxPnL) t.maxPnL = pnl;
-
-      // PARTIAL TP
-      if(pnl >= PARTIAL_TP && !t.partial){
-        log(`💰 PARTIAL ${sym}`);
-        await closePartial(sym, side, base);
-        t.partial = true;
-      }
-
-      // BREAK EVEN
-      if(pnl >= BREAK_EVEN && !t.breakEven){
-        t.breakEven = true;
-      }
-
-      // STOP LOSS
-      if(!t.breakEven && pnl <= -0.6){
-        log(`🛑 SL ${sym}`);
-        await closeAll(sym, side, base, pnl);
+      if(pnl < -0.6){
+        await closeAll(sym,side,base,pnl);
         delete TRACKING[sym];
-        continue;
       }
 
-      // BE EXIT
-      if(t.breakEven && pnl <= 0){
-        log(`⚖️ BE ${sym}`);
-        await closeAll(sym, side, base, pnl);
-        delete TRACKING[sym];
-        continue;
-      }
-
-      // TRAILING MAIS AGRESSIVO
-      if(t.maxPnL >= TRAIL_START){
-
-        let trail = 0.4;
-
-        if(t.maxPnL > 1.5) trail = 0.6;
-        if(t.maxPnL > 3) trail = 1;
-
-        if(pnl <= t.maxPnL - trail){
-          log(`📉 TRAIL ${sym}`);
-          await closeAll(sym, side, base, pnl);
-          delete TRACKING[sym];
-          continue;
-        }
+      if(pnl > 1){
+        await closePartial(sym,side,base);
       }
     }
 
@@ -151,29 +149,25 @@ module.exports = async (req,res)=>{
 
       const prediction = await MLAPI.getPrediction(features);
 
-      // 🔥 FILTRO MAIS FORTE
       if(!prediction || prediction.confidence < 0.7){
         log('🧠 bloqueado');
         continue;
       }
 
-      const signal = STRAT.trendBot(closes);
-      if(!signal) continue;
+      const side = consensus(closes);
+      if(!side){
+        log('❌ sem consenso');
+        continue;
+      }
 
       const now = Date.now();
+      if(now-LAST_TRADE < 6000) continue;
 
-      // 🔥 MAIS OPORTUNIDADES
-      if(now - LAST_TRADE < 5000) continue;
-
-      // 🔥 TAMANHO DINÂMICO
       let risk = 0.01;
 
-      if(prediction.confidence > 0.8) risk = 0.02;
-      if(prediction.confidence > 0.9) risk = 0.03;
+      if(prediction.confidence > 0.85) risk=0.02;
 
-      const qty = ((balance * risk)/price).toFixed(4);
-
-      log(`⚖️ risk:${risk} conf:${prediction.confidence.toFixed(2)}`);
+      const qty = ((balance*risk)/price).toFixed(4);
 
       await fetch(base+'/api/bitget',{
         method:'POST',
@@ -181,24 +175,18 @@ module.exports = async (req,res)=>{
         body:JSON.stringify({
           action:'order',
           symbol:sym,
-          side:signal.side,
+          side,
           quantity:qty
         })
       });
 
       LAST_TRADE = Date.now();
 
-      log(`🚀 ${signal.side} ${sym}`);
-
-      TRACKING[sym] = {
-        maxPnL: 0,
-        breakEven: false,
-        partial: false
-      };
+      log(`🚀 ${side} ${sym}`);
 
       await saveTrade({
         symbol:sym,
-        side:signal.side,
+        side,
         qty,
         time:Date.now(),
         features
@@ -218,10 +206,9 @@ module.exports = async (req,res)=>{
 };
 
 // ===== HELPERS =====
-
 async function closeAll(symbol, side, base, pnl){
 
-  const closeSide = side === 'long' ? 'SELL' : 'BUY';
+  const closeSide = side==='long'?'SELL':'BUY';
 
   await fetch(base+'/api/bitget',{
     method:'POST',
@@ -243,7 +230,7 @@ async function closeAll(symbol, side, base, pnl){
 
 async function closePartial(symbol, side, base){
 
-  const closeSide = side === 'long' ? 'SELL' : 'BUY';
+  const closeSide = side==='long'?'SELL':'BUY';
 
   await fetch(base+'/api/bitget',{
     method:'POST',
