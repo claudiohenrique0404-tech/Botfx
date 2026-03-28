@@ -5,7 +5,6 @@ const BRAIN = require('./brain');
 
 const fetch = global.fetch || require('node-fetch');
 
-// 🔥 LOGS GLOBAIS
 if(!global.LOGS){
   global.LOGS = [];
 }
@@ -18,7 +17,6 @@ let START_BALANCE = null;
 const MAX_TRADES_DAY = 10;
 const MAX_DAILY_LOSS = -3;
 
-// ===== LOG
 function log(msg){
   const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
   const e = `[${t}] ${msg}`;
@@ -28,7 +26,6 @@ function log(msg){
   if(LOGS.length > 200) LOGS.pop();
 }
 
-// ===== CONSENSO
 function analyzeBots(closes){
 
   const signals = {
@@ -62,14 +59,12 @@ function analyzeBots(closes){
   return null;
 }
 
-// ===== BOT MAIN
 module.exports = async function runBot(){
 
   try{
 
     const base = process.env.BASE_URL;
 
-    // ===== SETTINGS
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -81,7 +76,6 @@ module.exports = async function runBot(){
       return;
     }
 
-    // ===== BALANCE
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -111,14 +105,13 @@ module.exports = async function runBot(){
       return;
     }
 
-    // ===== POSITIONS
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // 🔥 GERIR POSIÇÕES (NOVO)
+    // 🔥 GESTÃO + AUTO-LEARNING
     for(const pos of positions){
 
       const symbol = pos.symbol;
@@ -132,8 +125,9 @@ module.exports = async function runBot(){
 
       log(`📊 ${symbol} PnL: ${pnl.toFixed(2)}%`);
 
-      if(pnl > 0.8){
-        log(`✅ TAKE PROFIT ${symbol}`);
+      if(pnl > 0.8 || pnl < -0.5){
+
+        const side = pnl > 0 ? 'SELL' : 'SELL';
 
         await fetch(base+'/api/bitget',{
           method:'POST',
@@ -141,27 +135,22 @@ module.exports = async function runBot(){
           body:JSON.stringify({
             action:'order',
             symbol,
-            side:'SELL',
+            side,
             quantity: Math.abs(size),
             close:true
           })
         });
 
-        continue;
-      }
+        log(pnl > 0 ? `✅ TP ${symbol}` : `🛑 SL ${symbol}`);
 
-      if(pnl < -0.5){
-        log(`🛑 STOP LOSS ${symbol}`);
-
-        await fetch(base+'/api/bitget',{
+        // 🔥 AUTO-LEARNING
+        await fetch(base+'/api/db-update',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
-            action:'order',
-            symbol,
-            side:'SELL',
-            quantity: Math.abs(size),
-            close:true
+            id: symbol + Date.now(),
+            pnl,
+            bots: ['trend','rsi','momentum']
           })
         });
 
@@ -169,7 +158,6 @@ module.exports = async function runBot(){
       }
     }
 
-    // ===== NOVAS ENTRADAS
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
@@ -194,11 +182,9 @@ module.exports = async function runBot(){
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
 
-      const high = Math.max(...closes.slice(-20));
-      const low = Math.min(...closes.slice(-20));
-      const range20 = (high - low) / price;
+      const range = (Math.max(...closes.slice(-20)) - Math.min(...closes.slice(-20))) / price;
 
-      if(range20 < 0.003){
+      if(range < 0.003){
         log('📉 mercado lateral');
         continue;
       }
@@ -210,8 +196,7 @@ module.exports = async function runBot(){
         continue;
       }
 
-      const risk = 0.005;
-      const qty = ((balance * risk)/price).toFixed(4);
+      const qty = ((balance * 0.005)/price).toFixed(4);
 
       log(`⚖️ qty:${qty}`);
 
@@ -234,9 +219,6 @@ module.exports = async function runBot(){
       }
 
       log(`🚀 ${decision.side} ${sym}`);
-
-      LAST_TRADE = Date.now();
-      TRADES_TODAY++;
 
       await saveTrade({
         symbol:sym,
