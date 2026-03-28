@@ -1,13 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Trading Desk Hedge</title>
-
+  <title>Trading Desk</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    body{font-family:Arial;background:#020617;color:#e2e8f0;margin:0}
-    header{padding:15px;text-align:center;color:#38bdf8;font-size:22px}
+    body{
+      background:#0f172a;
+      color:white;
+      font-family:Arial;
+      margin:0;
+    }
+
+    h2{
+      text-align:center;
+      padding:15px;
+    }
 
     nav{
       display:flex;
@@ -21,11 +29,6 @@
       border:none;
       color:#94a3b8;
       cursor:pointer;
-      font-size:15px;
-    }
-
-    nav button:hover{
-      color:#38bdf8;
     }
 
     .tab{
@@ -41,35 +44,33 @@
     }
 
     .btn{
-      padding:10px 15px;
+      padding:10px;
       border:none;
-      border-radius:5px;
-      font-weight:bold;
       cursor:pointer;
+      font-weight:bold;
     }
 
-    .on{background:#22c55e;color:#000}
-    .off{background:#ef4444;color:#000}
-
-    canvas{
-      background:#fff;
-      border-radius:10px;
-    }
+    .on{background:#22c55e;color:black;}
+    .off{background:#ef4444;color:black;}
 
     pre{
-      white-space:pre-wrap;
       font-size:12px;
+      white-space:pre-wrap;
+    }
+
+    canvas{
+      background:white;
+      border-radius:10px;
     }
   </style>
 </head>
+
 <body>
 
-<header>📊 Trading Desk Hedge Fund</header>
+<h2>🤖 Trading Desk</h2>
 
 <nav>
   <button onclick="showTab('dashboard')">Dashboard</button>
-  <button onclick="showTab('performance')">Performance</button>
-  <button onclick="showTab('bots')">Bots</button>
   <button onclick="showTab('logs')">Logs</button>
 </nav>
 
@@ -77,33 +78,21 @@
 <div id="dashboard" class="tab">
 
   <div class="box">
-    🤖 Estado do Bot:
-    <span id="botStatus">...</span>
+    Estado:
+    <span id="status">...</span>
     <br><br>
-    <button id="toggleBtn" class="btn" onclick="toggleBot()">...</button>
+    <button id="btn" class="btn" onclick="toggleBot()">...</button>
   </div>
 
-  <div class="box">💰 Balance: <span id="balance">-</span></div>
-  <div class="box">📊 PnL: <span id="pnl">-</span></div>
-  <div class="box">🎯 Winrate: <span id="winrate">-</span></div>
-  <div class="box">📉 Drawdown: <span id="drawdown">-</span></div>
-  <div class="box">📐 Sharpe: <span id="sharpe">-</span></div>
-
-</div>
-
-<!-- PERFORMANCE -->
-<div id="performance" class="tab">
   <div class="box">
-    <canvas id="equityChart"></canvas>
+    💰 Balance: <span id="balance">-</span>
   </div>
-</div>
 
-<!-- BOTS -->
-<div id="bots" class="tab">
   <div class="box">
-    <h3>🤖 Ranking Bots</h3>
-    <pre id="botsData">loading...</pre>
+    📈 Equity
+    <canvas id="chart"></canvas>
   </div>
+
 </div>
 
 <!-- LOGS -->
@@ -123,7 +112,7 @@ function showTab(id){
   document.getElementById(id).style.display='block';
 }
 
-// ===== TOGGLE BOT
+// ===== TOGGLE
 async function toggleBot(){
   await fetch('/api/bitget',{
     method:'POST',
@@ -132,24 +121,22 @@ async function toggleBot(){
   });
 }
 
-// ===== LOAD DATA
+// ===== LOAD
 async function load(){
 
   try{
 
     // ===== SETTINGS
-    const settings = await (await fetch('/api/bitget',{
+    const s = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'getSettings'})
     })).json();
 
-    const status = settings.active;
+    const statusEl = document.getElementById('status');
+    const btn = document.getElementById('btn');
 
-    const statusEl = document.getElementById('botStatus');
-    const btn = document.getElementById('toggleBtn');
-
-    if(status){
+    if(s.active){
       statusEl.innerText = 'ATIVO';
       statusEl.style.color = '#22c55e';
 
@@ -163,44 +150,6 @@ async function load(){
       btn.className = 'btn on';
     }
 
-    // ===== STATS
-    const stats = await (await fetch('/api/stats')).json();
-
-    document.getElementById('winrate').innerText =
-      (stats.winrate*100).toFixed(2)+'%';
-
-    document.getElementById('drawdown').innerText =
-      (stats.drawdown*100).toFixed(2)+'%';
-
-    document.getElementById('sharpe').innerText =
-      stats.sharpe.toFixed(2);
-
-    document.getElementById('botsData').innerText =
-      JSON.stringify(stats.botRanking,null,2);
-
-    // ===== EQUITY CHART
-    const labels = stats.equity.map(e=>new Date(e.time).toLocaleTimeString());
-    const data = stats.equity.map(e=>e.value);
-
-    if(chart) chart.destroy();
-
-    chart = new Chart(document.getElementById('equityChart'),{
-      type:'line',
-      data:{
-        labels,
-        datasets:[{
-          label:'Equity',
-          data
-        }]
-      }
-    });
-
-    // ===== LOGS
-    const logs = await (await fetch('/api/cron')).json();
-
-    document.getElementById('logsData').innerText =
-      (logs.logs || []).join('\n');
-
     // ===== BALANCE
     const bal = await (await fetch('/api/bitget',{
       method:'POST',
@@ -213,22 +162,40 @@ async function load(){
     document.getElementById('balance').innerText =
       '$'+balance.toFixed(2);
 
-    // ===== PNL
-    if(stats.equity.length){
-      const start = stats.equity[0].value;
-      const last = stats.equity.at(-1).value;
+    // ===== EQUITY
+    const stats = await (await fetch('/api/stats')).json();
 
-      const pnl = ((last-start)/start*100).toFixed(2);
+    const labels = stats.equity.map(e=>
+      new Date(e.time).toLocaleTimeString()
+    );
 
-      document.getElementById('pnl').innerText = pnl+'%';
-    }
+    const data = stats.equity.map(e=>e.value);
+
+    if(chart) chart.destroy();
+
+    chart = new Chart(document.getElementById('chart'),{
+      type:'line',
+      data:{
+        labels,
+        datasets:[{
+          label:'Equity',
+          data
+        }]
+      }
+    });
+
+    // ===== LOGS (🔥 FIX AQUI)
+    const logs = await (await fetch('/api/cron?mode=logs')).json();
+
+    document.getElementById('logsData').innerText =
+      (logs.logs || []).join('\n');
 
   }catch(e){
     console.log('ERROR:', e);
   }
 }
 
-// ===== AUTO REFRESH
+// ===== REFRESH
 setInterval(load,3000);
 
 // ===== INIT
