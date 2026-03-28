@@ -44,7 +44,7 @@
 </div>
 
 <div class="box">
-  📡 Logs (tempo real)
+  📡 Logs
   <pre id="logsData"></pre>
 </div>
 
@@ -52,15 +52,12 @@
 
 let chart;
 let lastRun = 0;
-
 let loading = false;
 let toggling = false;
 
-// ===== TOGGLE BOT
+// ===== TOGGLE
 async function toggleBot(){
-
   if(toggling) return;
-
   toggling = true;
 
   try{
@@ -70,54 +67,44 @@ async function toggleBot(){
       body:JSON.stringify({action:'toggleBot'})
     });
   }catch(e){
-    console.log('Toggle error:', e);
+    console.log(e);
   }
 
   toggling = false;
 }
 
-// ===== LOAD PRINCIPAL (PESADO)
+// ===== LOAD
 async function load(){
 
   if(loading) return;
-
   loading = true;
 
   try{
 
-    // SETTINGS
     const s = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'getSettings'})
     })).json();
 
-    const statusEl = document.getElementById('status');
     const btn = document.getElementById('btn');
+    const status = document.getElementById('status');
 
     if(s.active){
-      statusEl.innerText = 'ATIVO';
-      statusEl.style.color = '#22c55e';
-      btn.innerText = 'DESLIGAR BOT';
-      btn.className = 'btn off';
+      status.innerText='ATIVO';
+      btn.innerText='DESLIGAR BOT';
+      btn.className='btn off';
     }else{
-      statusEl.innerText = 'DESLIGADO';
-      statusEl.style.color = '#ef4444';
-      btn.innerText = 'LIGAR BOT';
-      btn.className = 'btn on';
+      status.innerText='DESLIGADO';
+      btn.innerText='LIGAR BOT';
+      btn.className='btn on';
     }
 
-    // EXECUTA BOT CONTROLADO
+    // RUN BOT
     const now = Date.now();
-
-    if(s.active && (now - lastRun > 8000)){
+    if(s.active && now - lastRun > 8000){
       lastRun = now;
-
-      try{
-        await fetch('/api/cron');
-      }catch(e){
-        console.log('Cron error:', e);
-      }
+      await fetch('/api/cron');
     }
 
     // BALANCE
@@ -128,36 +115,40 @@ async function load(){
     })).json();
 
     document.getElementById('balance').innerText =
-      '$' + parseFloat(bal?.[0]?.available || 0).toFixed(2);
+      '$'+parseFloat(bal?.[0]?.available||0).toFixed(2);
 
     // STATS
     const stats = await (await fetch('/api/stats')).json();
 
     document.getElementById('winrate').innerText =
-      stats.winrate ? (stats.winrate * 100).toFixed(2) + '%' : '0%';
+      stats.winrate ? (stats.winrate*100).toFixed(2)+'%' : '0%';
 
     document.getElementById('tradesData').innerText =
-      JSON.stringify(stats.trades || [], null, 2);
+      JSON.stringify(stats.trades||[],null,2);
 
-    // EQUITY
-    const labels = (stats.equity || []).map(e =>
-      new Date(e.time).toLocaleTimeString()
-    );
+    // 🔥 CHART PROTEGIDO
+    try{
 
-    const data = (stats.equity || []).map(e => e.value);
+      if(window.Chart){
 
-    if(chart) chart.destroy();
+        const labels = (stats.equity||[]).map(e =>
+          new Date(e.time).toLocaleTimeString()
+        );
 
-    chart = new Chart(document.getElementById('chart'),{
-      type:'line',
-      data:{
-        labels,
-        datasets:[{
-          label:'Equity',
-          data
-        }]
+        const data = (stats.equity||[]).map(e=>e.value);
+
+        if(chart) chart.destroy();
+
+        chart = new Chart(document.getElementById('chart'),{
+          type:'line',
+          data:{labels,datasets:[{label:'Equity',data}]}
+        });
+
       }
-    });
+
+    }catch(e){
+      console.log('Chart error:', e);
+    }
 
     // POSITIONS
     const pos = await (await fetch('/api/bitget',{
@@ -167,34 +158,31 @@ async function load(){
     })).json();
 
     document.getElementById('positionsData').innerText =
-      JSON.stringify(pos || [], null, 2);
+      JSON.stringify(pos||[],null,2);
 
   }catch(e){
     console.log('LOAD ERROR:', e);
-  } finally {
-    // 🔥 GARANTE QUE NUNCA FICA BLOQUEADO
-    loading = false;
   }
+
+  loading = false;
 }
 
-// ===== LOGS LOOP (LEVE E INDEPENDENTE)
+// ===== LOGS
 async function loadLogs(){
-
   try{
     const logs = await (await fetch('/api/cron?mode=logs')).json();
-
     document.getElementById('logsData').innerText =
-      (logs.logs || []).join('\n');
+      (logs.logs||[]).join('\n');
   }catch(e){
-    console.log('LOG ERROR:', e);
+    console.log(e);
   }
 }
 
-// ===== LOOPS
-setInterval(load, 5000);     // pesado
-setInterval(loadLogs, 1500); // 🔥 mais fluído
+// LOOPS
+setInterval(load,5000);
+setInterval(loadLogs,2000);
 
-// ===== INIT
+// INIT
 load();
 loadLogs();
 
