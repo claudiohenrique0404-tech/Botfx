@@ -153,7 +153,7 @@ module.exports = async function runBot(){
      // if(pred.confidence < 0.55){
      //   log('❌ ML fraco');
      //   continue;
-      }
+     // }
 
       const decision = analyzeBots(closes);
 
