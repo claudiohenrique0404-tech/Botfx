@@ -31,9 +31,7 @@
   <button onclick="showTab('logs')">Logs</button>
 </nav>
 
-<!-- DASHBOARD -->
 <div id="dashboard" class="tab">
-
   <div class="box">
     Estado: <span id="status">...</span><br><br>
     <button id="btn" class="btn" onclick="toggleBot()">...</button>
@@ -41,51 +39,36 @@
 
   <div class="box">💰 Balance: <span id="balance">-</span></div>
   <div class="box">📊 Winrate: <span id="winrate">-</span></div>
-
 </div>
 
-<!-- PERFORMANCE -->
 <div id="performance" class="tab">
-
   <div class="box">
-    📈 Equity
     <canvas id="chart"></canvas>
   </div>
-
 </div>
 
-<!-- TRADES -->
 <div id="trades" class="tab">
-
   <div class="box">
-    📜 Histórico de Trades
     <pre id="tradesData"></pre>
   </div>
-
 </div>
 
-<!-- POSITIONS -->
 <div id="positions" class="tab">
-
   <div class="box">
-    📊 Posições Abertas (PnL em tempo real)
     <pre id="positionsData"></pre>
   </div>
-
 </div>
 
-<!-- LOGS -->
 <div id="logs" class="tab">
-
   <div class="box">
     <pre id="logsData"></pre>
   </div>
-
 </div>
 
 <script>
 
 let chart;
+let lastRun = 0;
 
 // ===== NAV
 function showTab(id){
@@ -107,7 +90,6 @@ async function load(){
 
   try{
 
-    // ===== SETTINGS
     const s = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -129,8 +111,11 @@ async function load(){
       btn.className = 'btn on';
     }
 
-    // 🔥 EXECUTA BOT
-    if(s.active){
+    // 🔥 EXECUÇÃO CONTROLADA (FIX)
+    const now = Date.now();
+
+    if(s.active && now - lastRun > 10000){
+      lastRun = now;
       await fetch('/api/cron');
     }
 
@@ -147,15 +132,12 @@ async function load(){
     // ===== STATS
     const stats = await (await fetch('/api/stats')).json();
 
-    // WINRATE
     document.getElementById('winrate').innerText =
       stats.winrate ? (stats.winrate*100).toFixed(2)+'%' : '0%';
 
-    // TRADES
     document.getElementById('tradesData').innerText =
       JSON.stringify(stats.trades || [], null, 2);
 
-    // ===== EQUITY
     const labels = (stats.equity || []).map(e =>
       new Date(e.time).toLocaleTimeString()
     );
@@ -166,16 +148,10 @@ async function load(){
 
     chart = new Chart(document.getElementById('chart'),{
       type:'line',
-      data:{
-        labels,
-        datasets:[{
-          label:'Equity',
-          data
-        }]
-      }
+      data:{labels,datasets:[{label:'Equity',data}]}
     });
 
-    // ===== POSIÇÕES
+    // ===== POSITIONS
     const pos = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -185,7 +161,7 @@ async function load(){
     document.getElementById('positionsData').innerText =
       JSON.stringify(pos || [], null, 2);
 
-    // ===== LOGS (FIX SEM EXECUTAR BOT)
+    // ===== LOGS
     const logs = await (await fetch('/api/cron?mode=logs')).json();
 
     document.getElementById('logsData').innerText =
@@ -196,10 +172,7 @@ async function load(){
   }
 }
 
-// ===== REFRESH
 setInterval(load,3000);
-
-// ===== INIT
 showTab('dashboard');
 
 </script>
