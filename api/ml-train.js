@@ -2,15 +2,21 @@ const { getDataset } = require('./db');
 
 module.exports = async (req,res)=>{
 
-  const data = getDataset();
+  try{
 
-  const r = await fetch('https://ml-api-production-d47c.up.railway.app/train',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ data })
-  });
+    const data = getDataset();
 
-  const d = await r.json();
+    const r = await fetch('https://ml-api-production-d47c.up.railway.app/train',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ data })
+    });
 
-  res.json(d);
+    const d = await r.json();
+
+    res.json(d);
+
+  }catch(e){
+    res.status(500).json({error:e.message});
+  }
 };
