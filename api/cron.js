@@ -1,13 +1,8 @@
-const STRAT = require('./strategies');
-const MLAPI = require('./ml-client');
-const { saveTrade, saveEquity } = require('./db');
-const { buildFeatures } = require('./features');
+const { saveEquity } = require('./db');
 
 if(!global.LOGS) global.LOGS = [];
-if(!global.POS_STATE) global.POS_STATE = {};
 
 let LOGS = global.LOGS;
-let POS_STATE = global.POS_STATE;
 
 function log(msg){
   const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
@@ -25,7 +20,6 @@ module.exports = async (req,res)=>{
       return res.json({logs:LOGS});
     }
 
-    // 🔥 URL BASE DINÂMICA (FIX)
     const base = `https://${req.headers.host}`;
 
     // ===== BALANCE
@@ -37,6 +31,8 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData?.[0]?.available || 0);
 
+    log(`💰 Balance ${balance}`);
+
     // ===== POSITIONS
     const positions = await (await fetch(base + '/api/bitget',{
       method:'POST',
@@ -44,149 +40,32 @@ module.exports = async (req,res)=>{
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // =========================
-    // 🔥 GESTÃO DE POSIÇÕES
-    // =========================
-
-    for(const pos of positions || []){
-
-      const sym = pos.symbol;
-      const pnl = parseFloat(pos.unrealizedPL || 0);
-      const size = parseFloat(pos.total || 0);
-
-      if(!POS_STATE[sym]){
-        POS_STATE[sym] = {
-          maxPnl: pnl,
-          breakeven:false,
-          partialClosed:false
-        };
-      }
-
-      let state = POS_STATE[sym];
-
-      if(pnl > state.maxPnl){
-        state.maxPnl = pnl;
-      }
-
-      log(`📊 ${sym} pnl:${pnl.toFixed(2)} max:${state.maxPnl.toFixed(2)}`);
-
-      if(pnl > 1 && !state.breakeven){
-        state.breakeven = true;
-        log(`🟢 BREAK EVEN ${sym}`);
-      }
-
-      if(pnl > 2 && !state.partialClosed){
-
-        const half = (size * 0.5).toFixed(4);
-
-        log(`✂️ PARTIAL ${sym}`);
-
-        await fetch(base + '/api/bitget',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            action:'order',
-            symbol:sym,
-            side: pos.holdSide === 'long' ? 'SELL' : 'BUY',
-            quantity:half
-          })
-        });
-
-        state.partialClosed = true;
-      }
-
-      const trail = state.maxPnl - 1.5;
-
-      if(state.maxPnl > 2 && pnl < trail){
-
-        log(`📉 TRAILING ${sym}`);
-
-        await fetch(base + '/api/bitget',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            action:'order',
-            symbol:sym,
-            side: pos.holdSide === 'long' ? 'SELL' : 'BUY',
-            quantity:size
-          })
-        });
-
-        delete POS_STATE[sym];
-        continue;
-      }
-
-      if(pnl < -1.5){
-
-        log(`🛑 STOP ${sym}`);
-
-        await fetch(base + '/api/bitget',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            action:'order',
-            symbol:sym,
-            side: pos.holdSide === 'long' ? 'SELL' : 'BUY',
-            quantity:size
-          })
-        });
-
-        delete POS_STATE[sym];
-        continue;
-      }
-    }
+    log(`📊 Positions ${positions.length}`);
 
     // =========================
-    // 🔥 ENTRADAS
+    // 🔥 TESTE FORÇADO
     // =========================
 
-    if(!positions || positions.length === 0){
+    if(positions.length === 0){
 
-      const symbols = ['BTCUSDT'];
+      const price = 50000; // fake price para teste
+      const qty = ((balance * 0.001)/price).toFixed(4);
 
-      for(const sym of symbols){
+      log(`🧪 TEST TRADE BUY BTCUSDT`);
 
-        const candles = await (await fetch(base + '/api/bitget',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            action:'candles',
-            symbol:sym,
-            tf:'1m'
-          })
-        })).json();
+      await fetch(base + '/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'order',
+          symbol:'BTCUSDT',
+          side:'BUY',
+          quantity:qty
+        })
+      });
 
-        if(!candles || !candles.length) continue;
-
-        const closes = candles.map(c=>+c[4]);
-        const price = closes.at(-1);
-
-        const features = buildFeatures(closes);
-        const pred = await MLAPI.getPrediction(features);
-
-        if(!pred || pred.confidence < 0.6){
-          log(`⏭️ SKIP ${sym}`);
-          continue;
-        }
-
-        const side = closes.at(-1) > closes.at(-10) ? 'BUY' : 'SELL';
-        const qty = ((balance * 0.005)/price).toFixed(4);
-
-        log(`🚀 ${side} ${sym}`);
-
-        await fetch(base + '/api/bitget',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            action:'order',
-            symbol:sym,
-            side,
-            quantity:qty
-          })
-        });
-
-        break;
-      }
+    }else{
+      log(`⏸️ Já existe posição`);
     }
 
     await saveEquity(balance);
