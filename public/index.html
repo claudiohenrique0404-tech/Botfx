@@ -27,6 +27,7 @@
   <button onclick="showTab('dashboard')">Dashboard</button>
   <button onclick="showTab('performance')">Performance</button>
   <button onclick="showTab('trades')">Trades</button>
+  <button onclick="showTab('positions')">Posições</button>
   <button onclick="showTab('logs')">Logs</button>
 </nav>
 
@@ -57,8 +58,18 @@
 <div id="trades" class="tab">
 
   <div class="box">
-    📜 Histórico
+    📜 Histórico de Trades
     <pre id="tradesData"></pre>
+  </div>
+
+</div>
+
+<!-- POSITIONS -->
+<div id="positions" class="tab">
+
+  <div class="box">
+    📊 Posições Abertas (PnL em tempo real)
+    <pre id="positionsData"></pre>
   </div>
 
 </div>
@@ -157,9 +168,22 @@ async function load(){
       type:'line',
       data:{
         labels,
-        datasets:[{label:'Equity',data}]
+        datasets:[{
+          label:'Equity',
+          data
+        }]
       }
     });
+
+    // ===== POSIÇÕES
+    const pos = await (await fetch('/api/bitget',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'positions'})
+    })).json();
+
+    document.getElementById('positionsData').innerText =
+      JSON.stringify(pos || [], null, 2);
 
     // ===== LOGS (FIX SEM EXECUTAR BOT)
     const logs = await (await fetch('/api/cron?mode=logs')).json();
