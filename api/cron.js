@@ -141,18 +141,18 @@ module.exports = async function runBot(){
 
       const features = buildFeatures(closes);
 
-      const pred = await MLAPI.getPrediction(features);
+     // const pred = await MLAPI.getPrediction(features);
 
-      if(!pred){
-        log('🧠 ML erro');
-        continue;
-      }
+     // if(!pred){
+     //   log('🧠 ML erro');
+     //   continue;
+     // }
 
-      log(`🧠 ML: ${pred.confidence.toFixed(2)}`);
+     // log(`🧠 ML: ${pred.confidence.toFixed(2)}`);
 
-      if(pred.confidence < 0.55){
-        log('❌ ML fraco');
-        continue;
+     // if(pred.confidence < 0.55){
+     //   log('❌ ML fraco');
+     //   continue;
       }
 
       const decision = analyzeBots(closes);
