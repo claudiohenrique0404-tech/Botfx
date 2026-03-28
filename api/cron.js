@@ -5,19 +5,19 @@ const { saveTrade, saveEquity } = require('./db');
 let LOGS = [];
 let LAST_TRADE = 0;
 
-// ===== CAPITAL DISTRIBUTION =====
-let BOT_SCORE = {
-  trend: 1,
-  rsi: 1,
-  momentum: 1
+// 🔥 RISK CONTROL
+let DAILY_START = null;
+let DAILY_PNL = 0;
+const MAX_DAILY_LOSS = -3; // -3%
+const MAX_POSITIONS = 3;
+
+// mínimos por ativo
+const MIN_QTY = {
+  BTCUSDT: 0.001,
+  ETHUSDT: 0.01,
+  SOLUSDT: 0.1,
+  XRPUSDT: 10
 };
-
-// ===== TRACKING =====
-let TRACKING = {};
-
-const BREAK_EVEN = 0.3;
-const TRAIL_START = 0.5;
-const TRAIL_DIST = 0.3;
 
 function log(msg){
   const time = new Date().toLocaleTimeString('pt-PT',{hour12:false});
@@ -28,22 +28,8 @@ function log(msg){
   if(LOGS.length > 100) LOGS.pop();
 }
 
-// ===== NORMALIZE SCORES =====
-function weights(){
-  const total = Object.values(BOT_SCORE).reduce((a,b)=>a+b,0);
-  let w = {};
-
-  for(const k in BOT_SCORE){
-    w[k] = BOT_SCORE[k]/total;
-  }
-
-  return w;
-}
-
-// ===== CONSENSUS =====
-function consensus(closes){
-
-  const w = weights();
+// ===== VOTING SYSTEM =====
+function getConsensus(closes){
 
   const signals = {
     trend: STRAT.trendBot(closes),
@@ -51,45 +37,23 @@ function consensus(closes){
     momentum: STRAT.momentumBot(closes)
   };
 
-  let buy=0, sell=0;
+  let buy = 0;
+  let sell = 0;
 
   for(const k in signals){
     const s = signals[k];
     if(!s) continue;
 
-    if(s.side==='BUY') buy += s.confidence * w[k];
-    if(s.side==='SELL') sell += s.confidence * w[k];
+    if(s.side === 'BUY') buy += s.confidence;
+    if(s.side === 'SELL') sell += s.confidence;
   }
 
   log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
-  if(buy > 0.6) return 'BUY';
-  if(sell > 0.6) return 'SELL';
+  if(buy > sell && buy >= 1.2) return 'BUY';
+  if(sell > buy && sell >= 1.2) return 'SELL';
 
   return null;
-}
-
-// ===== TWAP EXECUTION =====
-async function executeTWAP(base, symbol, side, totalQty){
-
-  const parts = 3;
-  const partQty = totalQty / parts;
-
-  for(let i=0;i<parts;i++){
-
-    await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        action:'order',
-        symbol,
-        side,
-        quantity:partQty.toFixed(4)
-      })
-    });
-
-    await new Promise(r=>setTimeout(r, 1000));
-  }
 }
 
 module.exports = async (req,res)=>{
@@ -98,6 +62,7 @@ module.exports = async (req,res)=>{
 
     const base = 'https://botfx-blush.vercel.app';
 
+    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -109,6 +74,7 @@ module.exports = async (req,res)=>{
       return res.json({logs:LOGS});
     }
 
+    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -117,79 +83,43 @@ module.exports = async (req,res)=>{
 
     const balance = parseFloat(balanceData[0]?.available || 0);
 
-    log(`💰 ${balance.toFixed(2)}`);
+    // init daily tracking
+    if(!DAILY_START) DAILY_START = balance;
 
+    DAILY_PNL = ((balance - DAILY_START)/DAILY_START)*100;
+
+    log(`💰 Balance: ${balance.toFixed(2)} | PnL diário: ${DAILY_PNL.toFixed(2)}%`);
+
+    // ===== KILL SWITCH =====
+    if(DAILY_PNL <= MAX_DAILY_LOSS){
+      log('🛑 KILL SWITCH ATIVO');
+      return res.json({logs:LOGS});
+    }
+
+    // ===== POSITIONS =====
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== POSITION MANAGEMENT =====
-    for(const p of positions){
+    const openSymbols = positions.map(p => p.symbol);
 
-      const sym = p.symbol;
-      const entry = parseFloat(p.openPriceAvg || p.openPrice);
-      const price = parseFloat(p.markPrice || p.last);
-      const side = p.holdSide;
+    log(`📊 Posições abertas: ${openSymbols.length}`);
 
-      if(!entry || !price) continue;
+    if(openSymbols.length >= MAX_POSITIONS){
+      log('⛔ Máx posições atingido');
+      return res.json({logs:LOGS});
+    }
 
-      let pnl = side==='long'
-        ? ((price-entry)/entry)*100
-        : ((entry-price)/entry)*100;
+    for(const sym of settings.symbols){
 
-      if(!TRACKING[sym]){
-        TRACKING[sym] = {
-          maxPnL: pnl,
-          breakEven: false,
-          partialTaken: false
-        };
-      }
-
-      const t = TRACKING[sym];
-
-      if(pnl > t.maxPnL) t.maxPnL = pnl;
-
-      // BREAK EVEN
-      if(pnl >= BREAK_EVEN && !t.breakEven){
-        t.breakEven = true;
-        log(`🟡 BE ${sym}`);
-      }
-
-      // PARTIAL TP
-      if(pnl >= 0.6 && !t.partialTaken){
-        log(`💰 PARTIAL TP ${sym}`);
-        await closePartial(sym, side, base);
-        t.partialTaken = true;
-      }
-
-      // BREAK EVEN EXIT
-      if(t.breakEven && pnl <= 0){
-        log(`⚖️ BE EXIT ${sym}`);
-        await closeAll(sym, side, base);
-        delete TRACKING[sym];
+      if(openSymbols.includes(sym)){
+        log(`⚠️ Já em posição: ${sym}`);
         continue;
       }
 
-      // TRAILING
-      if(t.maxPnL >= TRAIL_START){
-
-        const trail = t.maxPnL - TRAIL_DIST;
-
-        if(pnl <= trail){
-          log(`📉 TRAIL EXIT ${sym}`);
-          await closeAll(sym, side, base);
-          delete TRACKING[sym];
-          continue;
-        }
-      }
-    }
-
-    // ===== ENTRADAS =====
-    for(const sym of settings.symbols){
-
-      if(positions.find(p=>p.symbol===sym)) continue;
+      log(`🔍 ${sym}`);
 
       const candles = await (await fetch(base+'/api/bitget',{
         method:'POST',
@@ -201,33 +131,74 @@ module.exports = async (req,res)=>{
         })
       })).json();
 
-      if(!candles.length) continue;
+      if(!candles.length){
+        log('⚠️ sem dados');
+        continue;
+      }
 
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
 
+      // ===== ML FILTER =====
       const ml = ML.optimize(closes);
-      if(ml.winrate < 0.55) continue;
 
-      const side = consensus(closes);
-      if(!side) continue;
+      log(`🧠 ML winrate ${ml.winrate.toFixed(2)}`);
 
+      if(ml.winrate < 0.55){
+        log('🧠 bloqueado');
+        continue;
+      }
+
+      // ===== CONSENSUS =====
+      const side = getConsensus(closes);
+
+      if(!side){
+        log('❌ sem consenso');
+        continue;
+      }
+
+      // ===== COOLDOWN =====
       const now = Date.now();
-      if(now - LAST_TRADE < 10000) continue;
 
-      const qty = Math.max(5, balance*0.01) / price;
+      if(now - LAST_TRADE < 10000){
+        log('⏱ cooldown ativo');
+        continue;
+      }
 
-      await executeTWAP(base, sym, side, qty);
+      // ===== POSITION SIZE =====
+      const riskUSD = balance * 0.01;
+      let qty = riskUSD / price;
+
+      if(qty < MIN_QTY[sym]){
+        qty = MIN_QTY[sym];
+      }
+
+      qty = Number(qty.toFixed(4));
+
+      log(`⚖️ ${sym} qty:${qty}`);
+
+      // ===== EXECUTE =====
+      const r = await fetch(base+'/api/bitget',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'order',
+          symbol:sym,
+          side,
+          quantity:qty
+        })
+      });
+
+      const data = await r.json();
+
+      if(data.code !== '00000'){
+        log(`❌ ERRO: ${data.msg}`);
+        continue;
+      }
 
       LAST_TRADE = Date.now();
 
-      log(`🚀 ${side} ${sym}`);
-
-      TRACKING[sym] = {
-        maxPnL: 0,
-        breakEven: false,
-        partialTaken: false
-      };
+      log(`✅ ${side} ${sym}`);
 
       await saveTrade({
         symbol:sym,
@@ -248,35 +219,3 @@ module.exports = async (req,res)=>{
     res.json({logs:LOGS});
   }
 };
-
-// ===== CLOSE HELPERS =====
-
-async function closeAll(symbol, side, base){
-  const closeSide = side==='long' ? 'SELL' : 'BUY';
-
-  await fetch(base+'/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      action:'order',
-      symbol,
-      side:closeSide,
-      quantity:9999
-    })
-  });
-}
-
-async function closePartial(symbol, side, base){
-  const closeSide = side==='long' ? 'SELL' : 'BUY';
-
-  await fetch(base+'/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      action:'order',
-      symbol,
-      side:closeSide,
-      quantity:0.5 // metade
-    })
-  });
-}
