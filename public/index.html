@@ -1,168 +1,63 @@
 <!DOCTYPE html>
 <html lang="pt">
 <head>
-  <meta charset="UTF-8">
-  <title>Bot Trading Dashboard</title>
-  <style>
-    body { font-family: Arial; background:#0f172a; color:#e2e8f0; padding:20px; }
-    h1 { margin-bottom:10px; }
-    .box { background:#1e293b; padding:15px; margin-bottom:15px; border-radius:10px; }
-    .log { font-size:12px; max-height:200px; overflow:auto; }
-    .green { color:#22c55e; }
-    .red { color:#ef4444; }
-  </style>
+<meta charset="UTF-8">
+<title>Bot PRO</title>
+<style>
+body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
+.box{background:#1e293b;padding:15px;margin-bottom:15px;border-radius:10px}
+</style>
 </head>
+
 <body>
 
-<h1>📊 Bot Trading</h1>
+<h2>🚀 Bot Control</h2>
 
 <div class="box">
-  <h3>Posições</h3>
-  <div id="positions"></div>
+<h3>Settings</h3>
+
+Risco % <input id="risk"><br>
+Leverage <input id="lev"><br>
+
+<button onclick="save()">Guardar</button>
 </div>
 
 <div class="box">
-  <h3>Movimentos</h3>
-  <div id="trades"></div>
-</div>
-
-<div class="box">
-  <h3>Logs</h3>
-  <div id="logs" class="log"></div>
+<h3>Métricas</h3>
+<div id="metrics"></div>
 </div>
 
 <script>
-const S = {
-  positions: [],
-  closed: [],
-  logs: [],
-  isLive: true
-};
 
-// LOG
-function addLog(msg, type='info') {
-  S.logs.unshift({ msg, type, time:new Date().toLocaleTimeString() });
-  renderLogs();
+async function load(){
+ const r = await fetch('/api/bitget',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({action:'getSettings'})
+ });
+
+ const s = await r.json();
+
+ risk.value=s.risk;
+ lev.value=s.lev;
 }
 
-// GUARDAR TRADE
-function saveTrade(trade) {
-  try {
-    if (!trade || !trade.symbol) {
-      addLog('❌ Trade inválido', 'error');
-      return;
-    }
+async function save(){
+ await fetch('/api/bitget',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({
+     action:'setSettings',
+     risk:parseFloat(risk.value),
+     lev:parseFloat(lev.value)
+   })
+ });
 
-    const exists = S.closed.find(t => t.symbol === trade.symbol && !t.exit);
-    if (exists) {
-      addLog(`⚠️ Duplicado ignorado: ${trade.symbol}`, 'warn');
-      return;
-    }
-
-    const t = {
-      id: Date.now(),
-      symbol: trade.symbol,
-      side: trade.side || 'UNKNOWN',
-      entry: Number(trade.entry) || 0,
-      exit: Number(trade.exit) || 0,
-      pnl: Number(trade.pnl) || 0,
-      time: new Date().toLocaleTimeString()
-    };
-
-    S.closed.unshift(t);
-    addLog(`📊 Movimento guardado: ${t.symbol}`, 'trade');
-    renderTrades();
-
-  } catch (e) {
-    addLog('❌ Erro ao guardar trade', 'error');
-  }
+ alert('Atualizado');
 }
 
-// FETCH POSIÇÕES
-async function syncPositions() {
-  try {
-    const res = await fetch('/api/bitget', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ action:'positions' })
-    });
+load();
 
-    const data = await res.json();
-
-    if (!Array.isArray(data)) {
-      addLog('❌ erro posições', 'error');
-      return;
-    }
-
-    S.positions = data.map(p => ({
-      symbol: p.symbol,
-      side: p.holdSide,
-      size: parseFloat(p.total),
-      entry: parseFloat(p.openPriceAvg),
-      pnl: parseFloat(p.unrealizedPL || 0)
-    }));
-
-    renderPositions();
-
-  } catch(e) {
-    addLog('❌ sync falhou', 'error');
-  }
-}
-
-// RENDER
-function renderPositions() {
-  const el = document.getElementById('positions');
-  el.innerHTML = S.positions.map(p => `
-    <div>
-      ${p.symbol} | ${p.side} | ${p.size} |
-      <span class="${p.pnl>=0?'green':'red'}">${p.pnl.toFixed(2)}</span>
-    </div>
-  `).join('');
-}
-
-function renderTrades() {
-  const el = document.getElementById('trades');
-  el.innerHTML = S.closed.map(t => `
-    <div>
-      ${t.symbol} | ${t.side} |
-      PnL: <span class="${t.pnl>=0?'green':'red'}">${t.pnl}</span>
-    </div>
-  `).join('');
-}
-
-function renderLogs() {
-  const el = document.getElementById('logs');
-  el.innerHTML = S.logs.slice(0,50).map(l => `
-    <div>[${l.time}] ${l.msg}</div>
-  `).join('');
-}
-
-// MOCK FECHO TRADE (para testar)
-function simulateClose() {
-  if (S.positions.length === 0) return;
-
-  const p = S.positions[0];
-
-  saveTrade({
-    symbol: p.symbol,
-    side: p.side,
-    entry: p.entry,
-    exit: p.entry * (Math.random()*0.02 + 0.99),
-    pnl: (Math.random()*2 - 1).toFixed(2)
-  });
-}
-
-// LOOP
-setInterval(() => {
-  syncPositions();
-}, 5000);
-
-// simulação
-setInterval(() => {
-  simulateClose();
-}, 15000);
-
-addLog('🚀 Bot iniciado');
 </script>
 
 </body>
