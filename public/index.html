@@ -1,61 +1,181 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>Bot PRO</title>
-<style>
-body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
-.box{background:#1e293b;padding:15px;margin-bottom:15px;border-radius:10px}
-</style>
+  <title>Trading Desk</title>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      background:#0f172a;
+      color:white;
+      font-family:Arial;
+      padding:20px;
+    }
+
+    .box {
+      background:#1e293b;
+      padding:15px;
+      margin-bottom:15px;
+      border-radius:10px;
+    }
+
+    button {
+      padding:10px 20px;
+      border:none;
+      background:#22c55e;
+      color:white;
+      border-radius:6px;
+      cursor:pointer;
+      font-weight:bold;
+    }
+
+    canvas {
+      max-height:300px;
+    }
+
+    #logs {
+      font-size:12px;
+      max-height:250px;
+      overflow:auto;
+    }
+  </style>
 </head>
 
 <body>
 
-<h2>🚀 Bot Control</h2>
+<h1>📊 Trading Desk</h1>
 
 <div class="box">
-<h3>Settings</h3>
-
-Risco % <input id="risk"><br>
-Leverage <input id="lev"><br>
-
-<button onclick="save()">Guardar</button>
+  <button id="btn" onclick="toggle()">LIGAR BOT</button>
 </div>
 
 <div class="box">
-<h3>Métricas</h3>
-<div id="metrics"></div>
+  <h3>📈 Equity</h3>
+  <canvas id="chart"></canvas>
+</div>
+
+<div class="box">
+  <h3>📜 Trades</h3>
+  <div id="history">loading...</div>
+</div>
+
+<div class="box">
+  <h3>📡 Logs</h3>
+  <div id="logs">loading...</div>
 </div>
 
 <script>
 
+let chart;
+
+// ===== BOT =====
+async function toggle(){
+  await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'toggleBot' })
+  });
+  updateButton();
+}
+
+async function updateButton(){
+  const r = await fetch('/api/bitget',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'getSettings' })
+  });
+
+  const d = await r.json();
+
+  document.getElementById('btn').innerText =
+    d.active ? 'DESLIGAR BOT' : 'LIGAR BOT';
+}
+
+// ===== LOAD =====
 async function load(){
- const r = await fetch('/api/bitget',{
-   method:'POST',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({action:'getSettings'})
- });
 
- const s = await r.json();
+  // logs
+  try{
+    const cron = await (await fetch('/api/cron')).json();
+    logs.innerHTML = cron.logs?.join('<br>') || 'sem logs';
+  }catch{
+    logs.innerHTML = 'erro logs';
+  }
 
- risk.value=s.risk;
- lev.value=s.lev;
+  // stats
+  try{
+    const stats = await (await fetch('/api/stats')).json();
+
+    // trades
+    history.innerHTML =
+      (stats.trades || [])
+        .map(t => `${t.side} ${t.symbol} (${t.qty})`)
+        .join('<br>') || 'sem trades';
+
+    // equity chart
+    const equity = stats.equity || [];
+
+    const labels = equity.map(e =>
+      new Date(e.time).toLocaleTimeString()
+    );
+
+    const values = equity.map(e => e.value);
+
+    renderChart(labels, values);
+
+  }catch{
+    history.innerHTML = 'erro stats';
+  }
+
+  updateButton();
 }
 
-async function save(){
- await fetch('/api/bitget',{
-   method:'POST',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({
-     action:'setSettings',
-     risk:parseFloat(risk.value),
-     lev:parseFloat(lev.value)
-   })
- });
+// ===== CHART =====
+function renderChart(labels, data){
 
- alert('Atualizado');
+  const ctx = document.getElementById('chart');
+
+  if(chart){
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = data;
+    chart.update();
+    return;
+  }
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Equity',
+        data: data,
+        borderWidth: 2,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          labels: { color: 'white' }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: 'white' }
+        },
+        y: {
+          ticks: { color: 'white' }
+        }
+      }
+    }
+  });
 }
 
+// ===== LOOP =====
+setInterval(load, 4000);
 load();
 
 </script>
