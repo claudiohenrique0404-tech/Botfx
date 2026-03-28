@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
 
   try{
 
-    // 🔥 FIX BODY VERCEL (CRÍTICO)
+    // 🔥 FIX BODY VERCEL
     let body = req.body;
 
     if (!body || typeof body === "string") {
@@ -106,25 +106,42 @@ module.exports = async (req, res) => {
     // ===== ORDER =====
     if (action === 'order') {
 
-      const body = JSON.stringify({
+      // 🔥 lado correto (abrir vs fechar)
+      const side = p.close
+        ? (p.side === 'BUY' ? 'sell' : 'buy')
+        : (p.side === 'BUY' ? 'buy' : 'sell');
+
+      // 🔥 posição (necessário para futures)
+      const positionSide = p.side === 'BUY' ? 'long' : 'short';
+
+      const orderBody = JSON.stringify({
         symbol: p.symbol,
         productType: 'USDT-FUTURES',
         marginCoin: 'USDT',
         marginMode: 'isolated',
-        side: p.side === 'BUY' ? 'buy' : 'sell',
-        tradeSide: 'open',
+        side,
+        positionSide,
+        tradeSide: p.close ? 'close' : 'open',
         orderType: 'market',
-        size: String(p.quantity),
-        leverage: "3"
+        size: String(Math.abs(p.quantity)),
+        leverage: "3",
+        reduceOnly: p.close ? true : false
       });
 
       const r = await fetch(BASE + '/api/v2/mix/order/place-order', {
         method: 'POST',
-        headers: headers('POST','/api/v2/mix/order/place-order', body),
-        body
+        headers: headers('POST','/api/v2/mix/order/place-order', orderBody),
+        body: orderBody
       });
 
-      return res.json(await r.json());
+      const data = await r.json();
+
+      // 🔥 DEBUG REAL (IMPORTANTE)
+      if(data.code !== '00000'){
+        console.error('BITGET ERROR:', data);
+      }
+
+      return res.json(data);
     }
 
     return res.status(400).json({ error:'Invalid action' });
