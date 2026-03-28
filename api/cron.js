@@ -144,6 +144,15 @@ module.exports = async function runBot(){
 
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
+      // ===== MARKET FILTER (trend vs range)
+      const high = Math.max(...closes.slice(-20));
+      const low = Math.min(...closes.slice(-20));
+      const range = (high - low) / price;
+
+      if(range < 0.003){
+        log('📉 mercado lateral (range)');
+        continue;
+      }
 
       const features = buildFeatures(closes);
 
@@ -155,6 +164,21 @@ module.exports = async function runBot(){
       }
 
       const decision = analyzeBots(closes);
+
+      // ===== CONFIRMAR BREAKOUT
+      const last = closes.at(-1);
+      const prevHigh = Math.max(...closes.slice(-10, -1));
+      const prevLow = Math.min(...closes.slice(-10, -1));
+
+      if(decision && decision.side === 'BUY' && last < prevHigh){
+        log('❌ sem breakout BUY');
+        continue;
+      }
+
+      if(decision && decision.side === 'SELL' && last > prevLow){
+        log('❌ sem breakout SELL');
+        continue;
+      }
 
       if(!decision){
         log('❌ sem consenso');
