@@ -52,10 +52,11 @@
 
 let chart;
 let lastRun = 0;
+
 let loading = false;
 let toggling = false;
 
-// ===== TOGGLE BOT (SEGURO)
+// ===== TOGGLE BOT
 async function toggleBot(){
 
   if(toggling) return;
@@ -75,7 +76,7 @@ async function toggleBot(){
   toggling = false;
 }
 
-// ===== LOAD LOOP (SEGURO)
+// ===== LOAD PRINCIPAL (PESADO)
 async function load(){
 
   if(loading) return;
@@ -84,14 +85,12 @@ async function load(){
 
   try{
 
-    // ===== SETTINGS
-    const sRes = await fetch('/api/bitget',{
+    // SETTINGS
+    const s = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'getSettings'})
-    });
-
-    const s = await sRes.json();
+    })).json();
 
     const statusEl = document.getElementById('status');
     const btn = document.getElementById('btn');
@@ -108,7 +107,7 @@ async function load(){
       btn.className = 'btn on';
     }
 
-    // ===== EXECUÇÃO CONTROLADA DO BOT
+    // EXECUTA BOT CONTROLADO
     const now = Date.now();
 
     if(s.active && (now - lastRun > 8000)){
@@ -121,23 +120,18 @@ async function load(){
       }
     }
 
-    // ===== BALANCE
-    const balRes = await fetch('/api/bitget',{
+    // BALANCE
+    const bal = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'balance'})
-    });
-
-    const bal = await balRes.json();
-
-    const balance = parseFloat(bal?.[0]?.available || 0);
+    })).json();
 
     document.getElementById('balance').innerText =
-      '$' + balance.toFixed(2);
+      '$' + parseFloat(bal?.[0]?.available || 0).toFixed(2);
 
-    // ===== STATS
-    const statsRes = await fetch('/api/stats');
-    const stats = await statsRes.json();
+    // STATS
+    const stats = await (await fetch('/api/stats')).json();
 
     document.getElementById('winrate').innerText =
       stats.winrate ? (stats.winrate * 100).toFixed(2) + '%' : '0%';
@@ -145,59 +139,64 @@ async function load(){
     document.getElementById('tradesData').innerText =
       JSON.stringify(stats.trades || [], null, 2);
 
-    // ===== EQUITY CHART
+    // EQUITY
     const labels = (stats.equity || []).map(e =>
       new Date(e.time).toLocaleTimeString()
     );
 
     const data = (stats.equity || []).map(e => e.value);
 
-    if(chart){
-      chart.destroy();
-    }
+    if(chart) chart.destroy();
 
     chart = new Chart(document.getElementById('chart'),{
       type:'line',
       data:{
-        labels: labels,
-        datasets: [{
+        labels,
+        datasets:[{
           label:'Equity',
-          data: data
+          data
         }]
       }
     });
 
-    // ===== POSITIONS
-    const posRes = await fetch('/api/bitget',{
+    // POSITIONS
+    const pos = await (await fetch('/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
-    });
-
-    const pos = await posRes.json();
+    })).json();
 
     document.getElementById('positionsData').innerText =
       JSON.stringify(pos || [], null, 2);
 
-    // ===== LOGS
-    const logsRes = await fetch('/api/cron?mode=logs');
-    const logs = await logsRes.json();
+  }catch(e){
+    console.log('LOAD ERROR:', e);
+  } finally {
+    // 🔥 GARANTE QUE NUNCA FICA BLOQUEADO
+    loading = false;
+  }
+}
+
+// ===== LOGS LOOP (LEVE E INDEPENDENTE)
+async function loadLogs(){
+
+  try{
+    const logs = await (await fetch('/api/cron?mode=logs')).json();
 
     document.getElementById('logsData').innerText =
       (logs.logs || []).join('\n');
-
   }catch(e){
-    console.log('LOAD ERROR:', e);
+    console.log('LOG ERROR:', e);
   }
-
-  loading = false;
 }
 
-// ===== LOOP
-setInterval(load, 4000);
+// ===== LOOPS
+setInterval(load, 5000);     // pesado
+setInterval(loadLogs, 1500); // 🔥 mais fluído
 
 // ===== INIT
 load();
+loadLogs();
 
 </script>
 
