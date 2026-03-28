@@ -6,17 +6,20 @@ if(!global.settings){
 
 const settings = global.settings;
 
+// ===== CONFIG
 const API_KEY = process.env.BITGET_API_KEY;
 const API_SECRET = process.env.BITGET_API_SECRET;
 const PASSPHRASE = process.env.BITGET_PASSPHRASE;
 
 const BASE = 'https://api.bitget.com';
 
+// ===== SIGN (V2)
 function sign(timestamp, method, path, body=''){
-  const msg = timestamp + method + path + body;
-  return crypto.createHmac('sha256', API_SECRET).update(msg).digest('base64');
+  const message = timestamp + method + path + body;
+  return crypto.createHmac('sha256', API_SECRET).update(message).digest('base64');
 }
 
+// ===== REQUEST
 async function request(path, method='GET', body=null){
 
   const timestamp = Date.now().toString();
@@ -38,18 +41,19 @@ async function request(path, method='GET', body=null){
 
   const data = await res.json();
 
-  // 🔥 DEBUG
-  console.log('BITGET RESPONSE:', path, data);
+  console.log('BITGET V2:', path, data);
 
   return data;
 }
 
+// ===== HANDLER
 module.exports = async (req,res)=>{
 
   try{
 
     const { action, symbol, side, quantity } = req.body || {};
 
+    // ===== SETTINGS
     if(action === 'getSettings'){
       return res.json(settings);
     }
@@ -59,43 +63,48 @@ module.exports = async (req,res)=>{
       return res.json(settings);
     }
 
-    // ===== BALANCE
+    // ===== BALANCE (V2)
     if(action === 'balance'){
 
-      const data = await request('/api/mix/v1/account/accounts?productType=UMCBL');
+      const data = await request('/api/v2/mix/account/accounts?productType=USDT-FUTURES');
 
       return res.json(data.data || []);
     }
 
-    // ===== POSITIONS
+    // ===== POSITIONS (V2)
     if(action === 'positions'){
 
-      const data = await request('/api/mix/v1/position/allPosition?productType=UMCBL');
+      const data = await request('/api/v2/mix/position/all-position?productType=USDT-FUTURES');
 
       return res.json(data.data || []);
     }
 
-    // ===== CANDLES
+    // ===== CANDLES (V2)
     if(action === 'candles'){
 
-      const data = await request(`/api/mix/v1/market/candles?symbol=${symbol}&granularity=60&limit=100`);
+      const pair = symbol.replace('USDT','USDT_UMCBL');
+
+      const data = await request(`/api/v2/mix/market/candles?symbol=${pair}&granularity=60&limit=100`);
 
       return res.json(data.data || []);
     }
 
-    // ===== ORDER
+    // ===== ORDER (V2)
     if(action === 'order'){
 
+      const pair = symbol.replace('USDT','USDT_UMCBL');
+
       const body = {
-        symbol,
+        symbol: pair,
+        productType: 'USDT-FUTURES',
+        marginMode: 'crossed',
         marginCoin: 'USDT',
         size: quantity,
-        side: side.toLowerCase(),
-        orderType: 'market',
-        timeInForceValue: 'normal'
+        side: side.toLowerCase(), // buy / sell / close_long / close_short
+        orderType: 'market'
       };
 
-      const data = await request('/api/mix/v1/order/placeOrder','POST',body);
+      const data = await request('/api/v2/mix/order/place-order','POST',body);
 
       return res.json(data);
     }
