@@ -1,8 +1,10 @@
 const STRAT = require('./strategies');
-const MLAPI = require('./ml-client');
+// const MLAPI = require('./ml-client'); // ML desligado
 const { saveTrade, saveEquity } = require('./db');
 const { buildFeatures } = require('./features');
 const BRAIN = require('./brain');
+
+const fetch = global.fetch || require('node-fetch');
 
 // 🔥 LOGS GLOBAIS
 if(!global.LOGS){
@@ -66,8 +68,7 @@ module.exports = async function runBot(){
 
   try{
 
-    const base = process.env.BASE_URL; 
-    // exemplo: https://teu-vercel-app.vercel.app
+    const base = process.env.BASE_URL;
 
     // ===== SETTINGS
     const settings = await (await fetch(base+'/api/bitget',{
@@ -89,6 +90,11 @@ module.exports = async function runBot(){
     })).json();
 
     const balance = parseFloat(balanceData[0]?.available || 0);
+
+    if(!balance || balance <= 0){
+      log('❌ balance inválido');
+      return;
+    }
 
     if(!START_BALANCE) START_BALANCE = balance;
 
@@ -141,19 +147,12 @@ module.exports = async function runBot(){
 
       const features = buildFeatures(closes);
 
-     // const pred = await MLAPI.getPrediction(features);
-
-     // if(!pred){
-     //   log('🧠 ML erro');
-     //   continue;
-     // }
-
-     // log(`🧠 ML: ${pred.confidence.toFixed(2)}`);
-
-     // if(pred.confidence < 0.55){
-     //   log('❌ ML fraco');
-     //   continue;
-     // }
+      // 🔍 FILTRO DE MERCADO PARADO
+      const range = Math.max(...closes.slice(-10)) - Math.min(...closes.slice(-10));
+      if(range / price < 0.002){
+        log('📉 mercado parado');
+        continue;
+      }
 
       const decision = analyzeBots(closes);
 
