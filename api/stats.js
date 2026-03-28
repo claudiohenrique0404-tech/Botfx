@@ -1,25 +1,50 @@
-const { getTrades, getEquity } = require('./db');
+const { getStats } = require('./db');
+const BRAIN = require('./brain');
 
-module.exports = async (req,res)=>{
+module.exports = (req,res)=>{
 
-  try{
+  const { trades, equity } = getStats();
 
-    const trades = await getTrades();
-    const equity = await getEquity();
+  let wins = 0;
+  let returns = [];
 
-    let pnl = 0;
+  trades.forEach(t=>{
+    if(t.pnl > 0) wins++;
+    returns.push(t.pnl || 0);
+  });
 
-    if(equity.length > 1){
-      pnl = equity[0].value - equity[equity.length-1].value;
-    }
+  const winrate = trades.length ? wins / trades.length : 0;
 
-    res.json({
-      trades,
-      equity,
-      pnl
-    });
+  // ===== DRAWDOWN =====
+  let peak = -Infinity;
+  let maxDD = 0;
 
-  }catch(e){
-    res.json({ error: e.message });
-  }
+  equity.forEach(e=>{
+    if(e.value > peak) peak = e.value;
+
+    const dd = (peak - e.value) / peak;
+
+    if(dd > maxDD) maxDD = dd;
+  });
+
+  // ===== SHARPE =====
+  const avg = returns.reduce((a,b)=>a+b,0)/(returns.length||1);
+
+  const std = Math.sqrt(
+    returns.reduce((a,b)=>a+Math.pow(b-avg,2),0)/(returns.length||1)
+  );
+
+  const sharpe = std ? avg/std : 0;
+
+  // ===== BOT RANKING =====
+  const weights = BRAIN.getWeights();
+
+  return res.json({
+    trades,
+    equity,
+    winrate,
+    drawdown: maxDD,
+    sharpe,
+    botRanking: weights
+  });
 };
