@@ -62,7 +62,9 @@
 
 <script>
 
-// ===== TOGGLE
+let running = false;
+
+// ===== TOGGLE BOT
 async function toggleBot(){
   try{
     await fetch('/api/bitget',{
@@ -75,8 +77,11 @@ async function toggleBot(){
   }
 }
 
-// ===== LOAD
-async function load(){
+// ===== LOOP PRINCIPAL
+async function loop(){
+
+  if(running) return;
+  running = true;
 
   try{
 
@@ -90,6 +95,11 @@ async function load(){
     document.getElementById('status').innerText =
       s.active ? 'ATIVO' : 'DESLIGADO';
 
+    // 🔥 EXECUTA BOT
+    if(s.active){
+      await fetch('/api/cron');
+    }
+
     // BALANCE
     const bal = await (await fetch('/api/bitget',{
       method:'POST',
@@ -98,7 +108,7 @@ async function load(){
     })).json();
 
     document.getElementById('balance').innerText =
-      JSON.stringify(bal,null,2);
+      JSON.stringify(bal, null, 2);
 
     // POSITIONS
     const pos = await (await fetch('/api/bitget',{
@@ -108,7 +118,7 @@ async function load(){
     })).json();
 
     document.getElementById('positions').innerText =
-      JSON.stringify(pos,null,2);
+      JSON.stringify(pos, null, 2);
 
     // LOGS
     const logs = await (await fetch('/api/cron?mode=logs')).json();
@@ -119,11 +129,15 @@ async function load(){
   }catch(e){
     console.log('ERROR:', e);
   }
+
+  running = false;
 }
 
 // LOOP
-setInterval(load, 3000);
-load();
+setInterval(loop, 4000);
+
+// INIT
+loop();
 
 </script>
 
