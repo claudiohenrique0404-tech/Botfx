@@ -94,10 +94,25 @@ module.exports = async (req, res) => {
 
     // ===== CANDLES =====
     if (action === 'candles') {
-      const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=USDT-FUTURES&granularity=${p.tf}&limit=100`;
+
+      const granularity = p.tf === '1m' ? '60' : p.tf;
+
+      const url = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=USDT-FUTURES&granularity=${granularity}&limit=100`;
+
       const r = await fetch(url);
       const d = await r.json();
-      return res.json(d.data || []);
+
+      if(d.code && d.code !== '00000'){
+        console.error('BITGET SYMBOL ERROR:', p.symbol, d.msg);
+        return res.json([]);
+      }
+
+      if(!d || !d.data){
+        console.error('CANDLES ERROR:', d);
+        return res.json([]);
+      }
+
+      return res.json(d.data);
     }
 
     // ===== POSITIONS =====
@@ -109,12 +124,10 @@ module.exports = async (req, res) => {
     // ===== ORDER =====
     if (action === 'order') {
 
-      // 🔥 lado correto (abrir vs fechar)
       const side = p.close
         ? (p.side === 'BUY' ? 'sell' : 'buy')
         : (p.side === 'BUY' ? 'buy' : 'sell');
 
-      // 🔥 posição (necessário para futures)
       const positionSide = p.side === 'BUY' ? 'long' : 'short';
 
       const orderBody = JSON.stringify({
@@ -139,7 +152,6 @@ module.exports = async (req, res) => {
 
       const data = await r.json();
 
-      // 🔥 DEBUG REAL (IMPORTANTE)
       if(data.code !== '00000'){
         console.error('BITGET ERROR:', data);
       }
