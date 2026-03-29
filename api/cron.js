@@ -1,5 +1,5 @@
 const STRAT = require('./strategies');
-const { saveTrade, saveEquity } = require('./db');
+const { saveTrade, saveEquity, setTradePnL } = require('./db');
 const { buildFeatures } = require('./features');
 const BRAIN = require('./brain');
 
@@ -111,7 +111,7 @@ module.exports = async function runBot(){
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // 🔥 GESTÃO + AUTO-LEARNING
+    // 🔥 FECHO + PNL REAL + LEARNING
     for(const pos of positions){
 
       const symbol = pos.symbol;
@@ -127,15 +127,13 @@ module.exports = async function runBot(){
 
       if(pnl > 0.8 || pnl < -0.5){
 
-        const side = pnl > 0 ? 'SELL' : 'SELL';
-
         await fetch(base+'/api/bitget',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
             action:'order',
             symbol,
-            side,
+            side:'SELL',
             quantity: Math.abs(size),
             close:true
           })
@@ -143,16 +141,15 @@ module.exports = async function runBot(){
 
         log(pnl > 0 ? `✅ TP ${symbol}` : `🛑 SL ${symbol}`);
 
-        // 🔥 AUTO-LEARNING
-        await fetch(base+'/api/db-update',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            id: symbol + Date.now(),
-            pnl,
-            bots: ['trend','rsi','momentum']
-          })
-        });
+        // 🔥 guardar pnl real
+        const trade = setTradePnL(symbol, pnl);
+
+        // 🔥 auto-learning REAL
+        if(trade?.bots){
+          for(const b of trade.bots){
+            BRAIN.updateBot(b, pnl);
+          }
+        }
 
         continue;
       }
