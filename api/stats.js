@@ -9,11 +9,15 @@ module.exports = (req,res)=>{
   let returns = [];
 
   trades.forEach(t=>{
-    if(t.pnl > 0) wins++;
-    returns.push(t.pnl || 0);
+    if(typeof t.pnl === 'number'){
+      if(t.pnl > 0) wins++;
+      returns.push(t.pnl);
+    }
   });
 
-  const winrate = trades.length ? wins / trades.length : 0;
+  const winrate = trades.length 
+    ? ((wins / trades.length) * 100).toFixed(2) + '%'
+    : '0%';
 
   // ===== DRAWDOWN =====
   let peak = -Infinity;
@@ -22,7 +26,7 @@ module.exports = (req,res)=>{
   equity.forEach(e=>{
     if(e.value > peak) peak = e.value;
 
-    const dd = (peak - e.value) / peak;
+    const dd = peak ? (peak - e.value) / peak : 0;
 
     if(dd > maxDD) maxDD = dd;
   });
@@ -34,9 +38,8 @@ module.exports = (req,res)=>{
     returns.reduce((a,b)=>a+Math.pow(b-avg,2),0)/(returns.length||1)
   );
 
-  const sharpe = std ? avg/std : 0;
+  const sharpe = std ? (avg/std).toFixed(2) : 0;
 
-  // ===== BOT RANKING =====
   const weights = BRAIN.getWeights();
 
   return res.json({
