@@ -18,9 +18,10 @@ function trendBot(closes){
 
   const strength = Math.abs(ema20 - ema50) / price;
 
-  if(strength < 0.002) return null;
+  // 🔥 menos restritivo
+  if(strength < 0.0015) return null;
 
-  const conf = Math.min(1, 0.8 + strength*5);
+  const conf = Math.min(1, 0.75 + strength*6);
 
   if(ema20 > ema50){
     return { side:'BUY', confidence: conf, bot:'trend' };
@@ -48,8 +49,9 @@ function rsiBot(closes){
   const rs = gains/(losses||1);
   const rsi = 100-(100/(1+rs));
 
-  if(rsi<30) return {side:'BUY', confidence:0.6, bot:'rsi'};
-  if(rsi>70) return {side:'SELL', confidence:0.6, bot:'rsi'};
+  // 🔥 mais realista para 1m
+  if(rsi < 35) return {side:'BUY', confidence:0.55, bot:'rsi'};
+  if(rsi > 65) return {side:'SELL', confidence:0.55, bot:'rsi'};
 
   return null;
 }
@@ -60,8 +62,9 @@ function momentumBot(closes){
 
   const m = (closes.at(-1)-closes.at(-5))/closes.at(-5);
 
-  if(m>0.01) return {side:'BUY', confidence:0.6, bot:'momentum'};
-  if(m<-0.01) return {side:'SELL', confidence:0.6, bot:'momentum'};
+  // 🔥 menos agressivo (ANTES 0.01)
+  if(m > 0.005) return {side:'BUY', confidence:0.6, bot:'momentum'};
+  if(m < -0.005) return {side:'SELL', confidence:0.6, bot:'momentum'};
 
   return null;
 }
