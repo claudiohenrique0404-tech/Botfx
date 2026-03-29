@@ -53,8 +53,8 @@ function analyzeBots(closes){
 
   log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
-  if(buy > 0.6) return { side:'BUY', bots:used };
-  if(sell > 0.6) return { side:'SELL', bots:used };
+  if(buy > 0.5) return { side:'BUY', bots:used };
+  if(sell > 0.5) return { side:'SELL', bots:used };
 
   return null;
 }
