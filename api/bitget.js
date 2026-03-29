@@ -11,7 +11,7 @@ if(!global.BOT_SETTINGS){
     lev: 3,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
-      'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','MATICUSDT'
+      'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT'
     ]
   };
 }
