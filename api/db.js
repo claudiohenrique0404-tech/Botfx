@@ -6,7 +6,8 @@ function saveTrade(t){
 
   const trade = {
     ...t,
-    id: Date.now() + Math.random()
+    id: Date.now() + Math.random(),
+    pnl: undefined
   };
 
   trades.push(trade);
@@ -27,6 +28,22 @@ function updateTradeResult(id, pnl){
   if(item){
     item.result = pnl > 0 ? 1 : 0;
   }
+}
+
+// 🔥 NOVO — ligar pnl ao trade real
+function setTradePnL(symbol, pnl){
+
+  const t = [...trades]
+    .reverse()
+    .find(tr => tr.symbol === symbol && typeof tr.pnl !== 'number');
+
+  if(t){
+    t.pnl = pnl;
+    updateTradeResult(t.id, pnl);
+    return t;
+  }
+
+  return null;
 }
 
 function getDataset(){
@@ -50,5 +67,6 @@ module.exports = {
   saveEquity,
   getStats,
   getDataset,
-  updateTradeResult
+  updateTradeResult,
+  setTradePnL
 };
