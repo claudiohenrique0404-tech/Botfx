@@ -77,7 +77,13 @@ module.exports = async (req, res) => {
     // ===== BALANCE =====
     if (action === 'balance') {
       const d = await bg('GET', '/api/v2/mix/account/accounts?productType=USDT-FUTURES');
-      return res.json(d.data || []);
+      // Normalizar para expor usdtEquity como available
+      // usdtEquity = equity real (inclui margem usada + PnL aberto)
+      const data = (d.data || []).map(acc => ({
+        ...acc,
+        available: acc.usdtEquity || acc.crossedUnrealizedPL || acc.available,
+      }));
+      return res.json(data);
     }
 
     // ===== CANDLES =====
@@ -179,21 +185,24 @@ module.exports = async (req, res) => {
           ...tpslBase, planType: 'loss_plan', triggerPrice: String(slPrice),
         }).catch(e => ({ code: 'ERR', msg: e.message }));
 
-        if (!slRes || slRes.code !== '00000') {
-          console.error(`❌ SL FALHOU ${sym}:`, slRes?.msg || slRes);
-        } else {
-          console.log(`🛡️ SL confirmado: ${slPrice}`);
-        }
-
         const tpRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
           ...tpslBase, planType: 'profit_plan', triggerPrice: String(tpPrice),
         }).catch(e => ({ code: 'ERR', msg: e.message }));
 
-        if (!tpRes || tpRes.code !== '00000') {
-          console.error(`❌ TP FALHOU ${sym}:`, tpRes?.msg || tpRes);
-        } else {
-          console.log(`🎯 TP confirmado: ${tpPrice}`);
+        const slOk = slRes && slRes.code === '00000';
+        const tpOk = tpRes && tpRes.code === '00000';
+
+        if (!slOk || !tpOk) {
+          // SL ou TP falharam — fechar posição por segurança
+          console.error(`❌ SL/TP falharam ${sym} (SL:${slOk} TP:${tpOk}) — a fechar`);
+          await bg('POST', '/api/v2/mix/order/close-positions', {
+            symbol: sym, productType: pt, holdSide,
+          }).catch(e => console.error('close fail:', e.message));
+          return res.json({ error: 'SL/TP failed — position closed for safety' });
         }
+
+        console.log(`🛡️ SL confirmado: ${slPrice}`);
+        console.log(`🎯 TP confirmado: ${tpPrice}`);
       } else {
         console.log('⚠️ price não enviado — SL/TP não definidos');
       }
