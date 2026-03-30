@@ -196,7 +196,7 @@ module.exports = async function runBot(){
         continue;
       }
 
-      const minOrder = 5;
+      const minOrder = 5.5; // 🔥 buffer
       const maxRisk = 0.05;
 
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
@@ -211,17 +211,17 @@ module.exports = async function runBot(){
         orderValue = minOrder;
       }
 
-      // 🔥 FIX MIN ORDER
+      // 🔥 FIX DEFINITIVO
       let qty = orderValue / price;
 
-      qty = Math.ceil(qty * 1000) / 1000;
+      qty = Math.ceil(qty * 10000) / 10000;
 
-      if(qty * price < 5){
-        qty = 5 / price;
-        qty = Math.ceil(qty * 1000) / 1000;
+      if(qty * price < 5.5){
+        qty = 5.5 / price;
+        qty = Math.ceil(qty * 10000) / 10000;
       }
 
-      qty = qty.toFixed(3);
+      qty = qty.toFixed(4);
 
       log(`📊 conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$ qty:${qty}`);
 
