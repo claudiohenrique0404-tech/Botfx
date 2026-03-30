@@ -281,7 +281,7 @@ function exitBot(pnl, timeOpen, maxPnl) {
   if (maxPnl >= 0.7 && pnl < maxPnl * 0.6) return 'TRAIL'; // recuo de 40%
 
   // Trade fraca: 15min e ainda abaixo de 0.3% → libertar capital
-  if (timeOpen > 15 * 60 * 1000 && pnl < 0.3 && pnl > -0.3) return 'TIME_WEAK';
+  if (timeOpen > 18 * 60 * 1000 && pnl < 0.3 && pnl > -0.3) return 'TIME_WEAK'; // sideways 18min
 
   // Time stop: se passou 20min e está em lucro (mesmo pequeno) → sair
   if (timeOpen > MAX_TIME_MS && pnl > 0.2) return 'TIME';
