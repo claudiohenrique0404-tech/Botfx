@@ -6,275 +6,176 @@ const BRAIN = require('./brain');
 const fetch = global.fetch || require('node-fetch');
 
 // ===== LOGS =====
-if(!global.LOGS){
-  global.LOGS = [];
-}
+if (!global.LOGS) global.LOGS = [];
 let LOGS = global.LOGS;
 
 // ===== STATE =====
-let LAST_TRADE = 0;
-let TRADES_TODAY = 0;
+let TRADES_TODAY  = 0;
 let START_BALANCE = null;
 
 const MAX_TRADES_DAY = 10;
-const MAX_DAILY_LOSS = -3;
+const MAX_DAILY_LOSS = -3; // %
 
 // ===== LOGGER =====
-function log(msg){
-  const t = new Date().toLocaleTimeString('pt-PT',{
-    hour12:false,
-    timeZone:'Europe/Lisbon'
-  });
+function log(msg) {
+  const t = new Date().toLocaleTimeString('pt-PT', { hour12: false, timeZone: 'Europe/Lisbon' });
   const e = `[${t}] ${msg}`;
   console.log(e);
-
   LOGS.unshift(e);
-  if(LOGS.length > 200) LOGS.pop();
+  if (LOGS.length > 200) LOGS.pop();
 }
 
 // ===== CONSENSO =====
-function analyzeBots(closes){
-
+function analyzeBots(closes) {
   const signals = {
-    trend: STRAT.trendBot(closes),
-    rsi: STRAT.rsiBot(closes),
-    momentum: STRAT.momentumBot(closes)
+    trend:    STRAT.trendBot(closes),
+    rsi:      STRAT.rsiBot(closes),
+    momentum: STRAT.momentumBot(closes),
   };
 
   const weights = BRAIN.getWeights();
-
   let buy = 0, sell = 0, used = [];
 
-  for(const k in signals){
-
+  for (const k in signals) {
     const s = signals[k];
-    if(!s) continue;
-
+    if (!s) continue;
     const w = weights[k] || 0.6;
-
-    if(s.side === 'BUY') buy += s.confidence * w;
-    if(s.side === 'SELL') sell += s.confidence * w;
-
+    if (s.side === 'BUY')  buy  += s.confidence * w;
+    if (s.side === 'SELL') sell += s.confidence * w;
     used.push(k);
   }
 
   log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
-  if(buy > sell && buy > 0.55) return { side:'BUY', bots:used, buy, sell };
-  if(sell > buy && sell > 0.55) return { side:'SELL', bots:used, buy, sell };
+  if (buy  > sell && buy  > 0.55) return { side: 'BUY',  bots: used, buy, sell };
+  if (sell > buy  && sell > 0.55) return { side: 'SELL', bots: used, buy, sell };
 
   return null;
 }
 
+// ===== API HELPER =====
+async function callApi(base, body) {
+  const r = await fetch(base + '/api/bitget', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  });
+  return r.json();
+}
+
 // ===== MAIN BOT =====
-module.exports = async function runBot(){
-
-  try{
-
+module.exports = async function runBot() {
+  try {
     const base = process.env.BASE_URL;
 
-    const settings = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'getSettings'})
-    })).json();
+    // ── Settings ──────────────────────────────────────────────
+    const settings = await callApi(base, { action: 'getSettings' });
+    if (!settings.active) { log('⏸ BOT OFF'); return; }
 
-    if(!settings.active){
-      log('⏸ BOT OFF');
-      return;
-    }
+    // ── Balance ───────────────────────────────────────────────
+    const balanceData = await callApi(base, { action: 'balance' });
+    const balance     = parseFloat(balanceData[0]?.available || 0);
 
-    const balanceData = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'balance'})
-    })).json();
+    if (!balance || balance <= 0) { log('❌ balance inválido'); return; }
 
-    const balance = parseFloat(balanceData[0]?.available || 0);
+    if (!START_BALANCE) START_BALANCE = balance;
 
-    if(!balance || balance <= 0){
-      log('❌ balance inválido');
-      return;
-    }
-
-    if(!START_BALANCE) START_BALANCE = balance;
-
-    const pnlDay = ((balance - START_BALANCE)/START_BALANCE)*100;
-
+    const pnlDay = ((balance - START_BALANCE) / START_BALANCE) * 100;
     log(`💰 ${balance.toFixed(2)} | Day: ${pnlDay.toFixed(2)}%`);
 
-    if(pnlDay <= MAX_DAILY_LOSS){
-      log('🛑 KILL SWITCH');
-      return;
-    }
+    if (pnlDay <= MAX_DAILY_LOSS) { log('🛑 KILL SWITCH'); return; }
+    if (TRADES_TODAY >= MAX_TRADES_DAY) { log('⏸ LIMITE ATINGIDO'); return; }
 
-    if(TRADES_TODAY >= MAX_TRADES_DAY){
-      log('⏸ LIMITE ATINGIDO');
-      return;
-    }
+    // ── Posições abertas ──────────────────────────────────────
+    const positions = await callApi(base, { action: 'positions' });
+    console.log('POSITIONS:', JSON.stringify(positions));
 
-    const posRes = await (await fetch(base+'/api/bitget',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'positions'})
-    })).json();
+    // ── Gerir posições existentes ─────────────────────────────
+    for (const pos of positions) {
+      const symbol   = pos.symbol;
+      const holdSide = pos.holdSide; // 'long' ou 'short' da Bitget
+      const entry    = parseFloat(pos.openPriceAvg || pos.openPrice || 0);
+      const current  = parseFloat(pos.markPrice || pos.last || 0);
+      const size     = parseFloat(pos.total || 0);
 
-    console.log("POSITIONS RAW:", posRes);
+      if (!entry || !current || !size || !holdSide) continue;
 
-    const positions = posRes.data || posRes;
+      // PnL correto para long e short
+      const pnl = holdSide === 'long'
+        ? ((current - entry) / entry) * 100
+        : ((entry - current) / entry) * 100;
 
-    for(const pos of positions){
+      log(`📊 ${symbol} ${holdSide} PnL: ${pnl.toFixed(2)}%`);
 
-      const symbol = pos.symbol;
-
-      // 🔥 FIX ENTRY
-      const entry = parseFloat(
-        pos.openPriceAvg || pos.openPrice || pos.avgPrice || 0
-      );
-
-      const current = parseFloat(pos.markPrice || pos.last || 0);
-
-      // 🔥 FIX SIZE
-      const size = parseFloat(
-        pos.total || pos.available || pos.size || 0
-      );
-
-      if(!entry || !current || !size) continue;
-
-      const pnl = ((current - entry) / entry) * 100;
-
-      log(`📊 ${symbol} PnL: ${pnl.toFixed(2)}%`);
-
-      if(pnl > 0.8 || pnl < -0.5){
-
-        await fetch(base+'/api/bitget',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            action:'order',
-            symbol,
-            // 🔥 FIX SIDE
-            side: pos.holdSide === 'short' ? 'BUY' : 'SELL',
-            quantity: Math.abs(size),
-            close:true
-          })
-        });
-
-        log(pnl > 0 ? `✅ TP ${symbol}` : `🛑 SL ${symbol}`);
+      // Fechar se atingiu TP ou SL (fallback — Bitget já tem as ordens)
+      if (pnl > 1.6 || pnl < -0.8) {
+        await callApi(base, { action: 'close', symbol, holdSide });
+        log(pnl > 0 ? `✅ TP ${symbol} +${pnl.toFixed(2)}%` : `🛑 SL ${symbol} ${pnl.toFixed(2)}%`);
 
         const trade = setTradePnL(symbol, pnl);
-
-        if(trade?.bots){
-          for(const b of trade.bots){
-            BRAIN.updateBot(b, pnl);
-          }
+        if (trade?.bots) {
+          for (const b of trade.bots) BRAIN.updateBot(b, pnl);
         }
-
-        continue;
       }
     }
 
-    for(const sym of settings.symbols){
+    // ── Procurar novos sinais ─────────────────────────────────
+    const openSymbols = positions.map(p => p.symbol);
 
-      if(positions.find(p=>p.symbol===sym)) continue;
+    for (const sym of settings.symbols) {
+      if (openSymbols.includes(sym)) continue;
 
       log(`🔍 ${sym}`);
 
-      const candles = await (await fetch(base+'/api/bitget',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          action:'candles',
-          symbol:sym,
-          tf:'1m'
-        })
-      })).json();
+      const candles = await callApi(base, { action: 'candles', symbol: sym, tf: '1m' });
 
-      if(!candles.length){
-        log('⚠️ sem dados');
-        continue;
-      }
+      if (!candles.length) { log('⚠️ sem candles'); continue; }
 
-      const closes = candles.map(c=>+c[4]);
-      const price = closes.at(-1);
+      const closes = candles.map(c => +c[4]);
+      const price  = closes.at(-1);
 
-      if(!STRAT.marketFilter(closes)){
-        log('😴 mercado parado');
-        continue;
-      }
+      if (!price || price <= 0) continue;
+
+      if (!STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
 
       const decision = analyzeBots(closes);
+      if (!decision) { log('❌ sem consenso'); continue; }
 
-      if(!decision){
-        log('❌ sem consenso');
-        continue;
-      }
-
-      const minOrder = 5.5;
-      const maxRisk = 0.05;
-
+      // ── Dimensionamento ───────────────────────────────────────
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
+      const strength   = Math.max(0, Math.min(1, (confidence - 0.55) / 0.45));
+      let orderValue   = balance * (0.01 + strength * 0.04);
+      if (orderValue < 5.5) orderValue = 5.5;
 
-      let strength = (confidence - 0.55) / (1 - 0.55);
-      if(strength < 0) strength = 0;
-      if(strength > 1) strength = 1;
+      let qty = Math.ceil((orderValue / price) * 10000) / 10000;
+      if (qty * price < 5.5) qty = Math.ceil((5.5 / price) * 10000) / 10000;
 
-      let orderValue = balance * (0.01 + strength * (maxRisk - 0.01));
+      log(`📊 ${decision.side} conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$ qty:${qty}`);
 
-      if(orderValue < minOrder){
-        orderValue = minOrder;
-      }
-
-      let qty = orderValue / price;
-
-      qty = Math.ceil(qty * 10000) / 10000;
-
-      if(qty * price < 5.5){
-        qty = 5.5 / price;
-        qty = Math.ceil(qty * 10000) / 10000;
-      }
-
-      qty = qty.toFixed(4);
-
-      log(`📊 conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$ qty:${qty}`);
-
-      const r = await fetch(base+'/api/bitget',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          action:'order',
-          symbol:sym,
-          side:decision.side,
-          quantity:qty
-        })
+      // ── Abrir — passar price para SL/TP serem definidos na Bitget ──
+      const data = await callApi(base, {
+        action:   'order',
+        symbol:   sym,
+        side:     decision.side,
+        quantity: qty.toFixed(4),
+        price,
       });
 
-      const data = await r.json();
-
-      if(data.code !== '00000'){
+      if (data.code !== '00000') {
         log(`❌ erro ${data.msg}`);
         continue;
       }
 
-      log(`🚀 ${decision.side} ${sym}`);
+      log(`🚀 ${decision.side} ${sym} @ ${price}`);
 
-      await saveTrade({
-        symbol:sym,
-        side:decision.side,
-        qty,
-        bots:decision.bots,
-        time:Date.now()
-      });
-
+      await saveTrade({ symbol: sym, side: decision.side, qty, bots: decision.bots, time: Date.now() });
       await saveEquity(balance);
 
       TRADES_TODAY++;
-      LAST_TRADE = Date.now();
-
-      break;
+      break; // um trade por ciclo
     }
 
-  }catch(e){
+  } catch (e) {
     log(`🔥 ${e.message}`);
   }
 };
