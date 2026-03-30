@@ -1,3 +1,4 @@
+// ===== IMPORTS =====
 const STRAT = require('./strategies');
 const { saveTrade, saveEquity, setTradePnL } = require('./db');
 const { buildFeatures } = require('./features');
@@ -5,11 +6,13 @@ const BRAIN = require('./brain');
 
 const fetch = global.fetch || require('node-fetch');
 
+// ===== LOGS =====
 if(!global.LOGS){
   global.LOGS = [];
 }
 let LOGS = global.LOGS;
 
+// ===== STATE =====
 let LAST_TRADE = 0;
 let TRADES_TODAY = 0;
 let START_BALANCE = null;
@@ -17,6 +20,7 @@ let START_BALANCE = null;
 const MAX_TRADES_DAY = 10;
 const MAX_DAILY_LOSS = -3;
 
+// ===== LOGGER =====
 function log(msg){
   const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
   const e = `[${t}] ${msg}`;
@@ -26,6 +30,7 @@ function log(msg){
   if(LOGS.length > 200) LOGS.pop();
 }
 
+// ===== CONSENSO =====
 function analyzeBots(closes){
 
   const signals = {
@@ -53,18 +58,21 @@ function analyzeBots(closes){
 
   log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
-  if(buy > 0.5) return { side:'BUY', bots:used };
-  if(sell > 0.5) return { side:'SELL', bots:used };
+  // 🔥 melhor lógica (menos bloqueio)
+  if(buy > sell && buy > 0.6) return { side:'BUY', bots:used };
+  if(sell > buy && sell > 0.6) return { side:'SELL', bots:used };
 
   return null;
 }
 
+// ===== MAIN BOT =====
 module.exports = async function runBot(){
 
   try{
 
     const base = process.env.BASE_URL;
 
+    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -76,6 +84,7 @@ module.exports = async function runBot(){
       return;
     }
 
+    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -95,6 +104,7 @@ module.exports = async function runBot(){
 
     log(`💰 ${balance.toFixed(2)} | Day: ${pnlDay.toFixed(2)}%`);
 
+    // ===== RISK CONTROLS =====
     if(pnlDay <= MAX_DAILY_LOSS){
       log('🛑 KILL SWITCH');
       return;
@@ -105,13 +115,14 @@ module.exports = async function runBot(){
       return;
     }
 
+    // ===== POSITIONS =====
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // 🔥 FECHO + PNL REAL + LEARNING
+    // ===== FECHO DE POSIÇÕES =====
     for(const pos of positions){
 
       const symbol = pos.symbol;
@@ -141,10 +152,8 @@ module.exports = async function runBot(){
 
         log(pnl > 0 ? `✅ TP ${symbol}` : `🛑 SL ${symbol}`);
 
-        // 🔥 guardar pnl real
         const trade = setTradePnL(symbol, pnl);
 
-        // 🔥 auto-learning REAL
         if(trade?.bots){
           for(const b of trade.bots){
             BRAIN.updateBot(b, pnl);
@@ -155,6 +164,7 @@ module.exports = async function runBot(){
       }
     }
 
+    // ===== NOVAS ENTRADAS =====
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
@@ -179,13 +189,13 @@ module.exports = async function runBot(){
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
 
-      const range = (Math.max(...closes.slice(-20)) - Math.min(...closes.slice(-20))) / price;
-
-      if(range < 0.003){
-        log('📉 mercado lateral');
+      // ===== 🔥 NOVO FILTRO GLOBAL =====
+      if(!STRAT.marketFilter(closes)){
+        log('😴 mercado parado');
         continue;
       }
 
+      // ===== DECISÃO =====
       const decision = analyzeBots(closes);
 
       if(!decision){
@@ -193,6 +203,7 @@ module.exports = async function runBot(){
         continue;
       }
 
+      // ===== RISK =====
       const qty = ((balance * 0.005)/price).toFixed(4);
 
       log(`⚖️ qty:${qty}`);
@@ -226,6 +237,9 @@ module.exports = async function runBot(){
       });
 
       await saveEquity(balance);
+
+      TRADES_TODAY++;
+      LAST_TRADE = Date.now();
 
       break;
     }
