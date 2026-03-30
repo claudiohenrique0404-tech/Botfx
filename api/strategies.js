@@ -199,6 +199,26 @@ function contextFilter(closesHigher) {
   return 'NEUTRAL';
 }
 
+
+
+// ═══ EXIT BOT ═══════════════════════════════════════════════
+// Decide quando sair de uma posição aberta
+// pnl = PnL atual em %, timeOpen = ms, maxPnl = pico em %
+function exitBot(pnl, timeOpen, maxPnl) {
+  const MAX_TIME_MS = 20 * 60 * 1000; // 20 min
+
+  // Trailing: se atingiu 0.5%+ e recuou 50% do pico → sair
+  if (maxPnl >= 0.7 && pnl < maxPnl * 0.6) return 'TRAIL';
+
+  // Trade fraca: 15min e ainda abaixo de 0.3% → libertar capital
+  if (timeOpen > 15 * 60 * 1000 && pnl < 0.3 && pnl > -0.3) return 'TIME_WEAK';
+
+  // Time stop: se passou 20min e está em lucro (mesmo pequeno) → sair
+  if (timeOpen > MAX_TIME_MS && pnl > 0.2) return 'TIME';
+
+  return null;
+}
+
 module.exports = {
   trendBot,
   rsiBot,
@@ -208,4 +228,5 @@ module.exports = {
   volatilityBot,
   marketFilter,
   contextFilter,
+  exitBot,
 };
