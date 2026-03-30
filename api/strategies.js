@@ -54,7 +54,7 @@ function trendBot(closes) {
   const price = closes.at(-1);
   const strength = Math.abs(e9 - e21) / price;
 
-  if (strength < 0.001) return null;
+  if (strength < 0.0025) return null; // ignora micro-tendências irrelevantes
 
   const confidence = Math.min(1, 0.65 + strength * 12);
 
@@ -88,30 +88,42 @@ function momentumBot(closes) {
   return null;
 }
 
-// ═══ 4. BREAKOUT BOT (suporte/resistência) ══════════════════
-function breakoutBot(closes) {
+// ═══ 4. BREAKOUT BOT (suporte/resistência + confirmação volume) ════
+function breakoutBot(candles) {
+  // Aceita tanto candles completos como closes simples
+  const closes = Array.isArray(candles) && typeof candles[0] === 'object'
+    ? candles.map(c => parseFloat(c[4] || c.c || 0))
+    : candles;
+
   if (closes.length < 30) return null;
 
-  const recent   = closes.slice(-30);
-  const highest  = Math.max(...recent.slice(0, -1)); // exclui última vela
-  const lowest   = Math.min(...recent.slice(0, -1));
-  const price    = closes.at(-1);
-  const range    = highest - lowest;
+  const recent  = closes.slice(-30);
+  const highest = Math.max(...recent.slice(0, -1));
+  const lowest  = Math.min(...recent.slice(0, -1));
+  const price   = closes.at(-1);
+  const range   = highest - lowest;
 
   if (range === 0) return null;
 
-  const posInRange = (price - lowest) / range;
-
-  // Breakout para cima — preço saiu acima da resistência
-  if (price > highest) {
-    const strength = (price - highest) / (range || 1);
-    return { side: 'BUY', confidence: Math.min(0.85, 0.6 + strength * 5), bot: 'breakout' };
+  // Confirmação de volume — última vela tem de ter volume acima da média
+  let volConfirm = true;
+  if (Array.isArray(candles) && typeof candles[0] === 'object') {
+    const vols   = candles.slice(-20).map(c => parseFloat(c[5] || c.v || 0));
+    const avgVol = vols.slice(0, -1).reduce((a, b) => a + b, 0) / (vols.length - 1);
+    const lastVol = vols.at(-1);
+    volConfirm = avgVol > 0 ? lastVol >= avgVol * 1.2 : true; // 20% acima da média
   }
 
-  // Breakout para baixo — preço saiu abaixo do suporte
+  if (!volConfirm) return null; // fake breakout sem volume — ignorar
+
+  if (price > highest) {
+    const strength = (price - highest) / (range || 1);
+    return { side: 'BUY', confidence: Math.min(0.85, 0.65 + strength * 5), bot: 'breakout' };
+  }
+
   if (price < lowest) {
     const strength = (lowest - price) / (range || 1);
-    return { side: 'SELL', confidence: Math.min(0.85, 0.6 + strength * 5), bot: 'breakout' };
+    return { side: 'SELL', confidence: Math.min(0.85, 0.65 + strength * 5), bot: 'breakout' };
   }
 
   return null;
@@ -168,6 +180,62 @@ function volatilityBot(closes) {
   }
 
   return null;
+}
+
+
+// ═══ MARKET REGIME DETECTOR ════════════════════════════════
+// Retorna 'TREND', 'RANGE' ou 'VOLATILE'
+function detectRegime(closes) {
+  if (closes.length < 50) return 'RANGE';
+
+  const slice = closes.slice(-50);
+  const e9    = ema(slice, 9);
+  const e21   = ema(slice, 21);
+  const e50   = ema(slice, 50);
+  const price = closes.at(-1);
+
+  // Força da tendência
+  const trendStrength = Math.abs(e9 - e50) / price;
+
+  // Volatilidade (coeficiente de variação)
+  const mean = slice.reduce((a, b) => a + b) / slice.length;
+  const vol  = stddev(slice) / mean;
+
+  // Alta volatilidade → VOLATILE (cuidado)
+  if (vol > 0.015) return 'VOLATILE';
+
+  // Tendência forte → TREND
+  if (trendStrength > 0.005 && (
+    (e9 > e21 && e21 > e50) || (e9 < e21 && e21 < e50)
+  )) return 'TREND';
+
+  // Caso contrário → lateral
+  return 'RANGE';
+}
+
+// Filtra sinais pelo regime de mercado
+// Em TREND: desligar RSI e volatility (são de reversão)
+// Em RANGE: desligar trend e momentum (são de continuação)
+// Em VOLATILE: só entrar com alta confiança
+function filterByRegime(signals, regime) {
+  const filtered = { ...signals };
+
+  if (regime === 'TREND') {
+    // Mercado em tendência — reversões são perigosas
+    delete filtered.rsi;
+    delete filtered.volatility;
+  } else if (regime === 'RANGE') {
+    // Mercado lateral — seguir tendência é perigoso
+    delete filtered.trend;
+    delete filtered.momentum;
+  } else if (regime === 'VOLATILE') {
+    // Mercado volátil — só breakout e volume com alta conf
+    Object.keys(filtered).forEach(k => {
+      if (filtered[k] && filtered[k].confidence < 0.75) delete filtered[k];
+    });
+  }
+
+  return filtered;
 }
 
 // ═══ FILTRO GLOBAL ══════════════════════════════════════════
@@ -231,4 +299,6 @@ module.exports = {
   marketFilter,
   contextFilter,
   exitBot,
+  detectRegime,
+  filterByRegime,
 };
