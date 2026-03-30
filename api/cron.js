@@ -144,11 +144,11 @@ module.exports = async function runBot() {
       // ── Dimensionamento ───────────────────────────────────────
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
       const strength   = Math.max(0, Math.min(1, (confidence - 0.55) / 0.45));
-      let orderValue   = balance * (0.02 + strength * 0.08);
-      if (orderValue < 5.5) orderValue = 5.5;
+      let orderValue   = balance * (0.015 + strength * 0.05);
+      if (orderValue < 15) orderValue = 15;
 
       let qty = Math.ceil((orderValue / price) * 10000) / 10000;
-      if (qty * price < 5.5) qty = Math.ceil((5.5 / price) * 10000) / 10000;
+      if (qty * price < 15) qty = Math.ceil((15 / price) * 10000) / 10000;
 
       log(`📊 ${decision.side} conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$ qty:${qty}`);
 
