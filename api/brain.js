@@ -16,9 +16,12 @@ try {
 
 // ── Estado inicial (defaults) ─────────────────────────────
 const DEFAULT_STATS = {
-  trend:    { wins: 1, losses: 1 },
-  rsi:      { wins: 1, losses: 1 },
-  momentum: { wins: 1, losses: 1 },
+  trend:      { wins: 1, losses: 1 },
+  rsi:        { wins: 1, losses: 1 },
+  momentum:   { wins: 1, losses: 1 },
+  breakout:   { wins: 1, losses: 1 },
+  volume:     { wins: 1, losses: 1 },
+  volatility: { wins: 1, losses: 1 },
 };
 
 let BOT_STATS = { ...DEFAULT_STATS };
@@ -63,8 +66,32 @@ function getWeight(bot) {
   const s = BOT_STATS[bot];
   if (!s) return 0.5;
   const total = s.wins + s.losses;
-  if (total === 0) return 0.5;
-  return Math.max(0.2, Math.min(0.8, s.wins / total));
+  if (total < 5) return 0.5; // sem dados suficientes — neutro
+
+  const winRate = s.wins / total;
+
+  // Mais adaptativo: bots com >70% WR ganham mais peso
+  // Bots com <30% WR são quase ignorados
+  // Suavização logarítmica para evitar extremos prematuros
+  const adjusted = 0.3 + winRate * 0.7;
+  return Math.max(0.15, Math.min(0.9, adjusted));
+}
+
+// Retorna estatísticas detalhadas por bot
+function getBotStats() {
+  const stats = {};
+  for (const k in BOT_STATS) {
+    const s = BOT_STATS[k];
+    const total = s.wins + s.losses;
+    stats[k] = {
+      wins: s.wins,
+      losses: s.losses,
+      total,
+      winRate: total > 0 ? ((s.wins / total) * 100).toFixed(1) + '%' : '—',
+      weight: getWeight(k).toFixed(2),
+    };
+  }
+  return stats;
 }
 
 function getWeights() {
@@ -73,4 +100,4 @@ function getWeights() {
   return w;
 }
 
-module.exports = { updateBot, getWeights };
+module.exports = { updateBot, getWeights, getBotStats };
