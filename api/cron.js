@@ -25,12 +25,21 @@ function log(msg) {
   if (LOGS.length > 200) LOGS.pop();
 }
 
-// ===== CONSENSO =====
-function analyzeBots(closes) {
+// ===== CONSENSO (6 bots) =====
+// candles = array completo [{o,h,l,c,v}] ou closes simples
+function analyzeBots(candles) {
+  // Suporta tanto array de closes como array de candles completos
+  const closes = Array.isArray(candles) && typeof candles[0] === 'object'
+    ? candles.map(c => parseFloat(c[4] || c.c || 0)).filter(Boolean)
+    : candles;
+
   const signals = {
-    trend:    STRAT.trendBot(closes),
-    rsi:      STRAT.rsiBot(closes),
-    momentum: STRAT.momentumBot(closes),
+    trend:      STRAT.trendBot(closes),
+    rsi:        STRAT.rsiBot(closes),
+    momentum:   STRAT.momentumBot(closes),
+    breakout:   STRAT.breakoutBot(closes),
+    volume:     STRAT.volumeBot(candles),      // precisa de candles completos
+    volatility: STRAT.volatilityBot(closes),
   };
 
   const weights = BRAIN.getWeights();
@@ -39,13 +48,13 @@ function analyzeBots(closes) {
   for (const k in signals) {
     const s = signals[k];
     if (!s) continue;
-    const w = weights[k] || 0.6;
+    const w = weights[k] || 0.5;
     if (s.side === 'BUY')  buy  += s.confidence * w;
     if (s.side === 'SELL') sell += s.confidence * w;
     used.push(k);
   }
 
-  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
+  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
 
   if (buy  > sell && buy  > 0.55) return { side: 'BUY',  bots: used, buy, sell };
   if (sell > buy  && sell > 0.55) return { side: 'SELL', bots: used, buy, sell };
@@ -133,19 +142,33 @@ module.exports = async function runBot() {
 
       log(`🔍 ${sym}`);
 
-      const candles = await callApi(base, { action: 'candles', symbol: sym, tf: '1m' });
+      const [candles1m, candles5m] = await Promise.all([
+        callApi(base, { action: 'candles', symbol: sym, tf: '1m' }),
+        callApi(base, { action: 'candles', symbol: sym, tf: '5m' }),
+      ]);
 
-      if (!candles.length) { log('⚠️ sem candles'); continue; }
+      if (!candles1m || !candles1m.length) { log('⚠️ sem candles'); continue; }
 
-      const closes = candles.map(c => +c[4]);
+      const closes = candles1m.map(c => +c[4]);
       const price  = closes.at(-1);
 
       if (!price || price <= 0) continue;
 
       if (!STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
 
-      const decision = analyzeBots(closes);
+      // Decisão no 1m
+      const decision = analyzeBots(candles1m);
       if (!decision) { log('❌ sem consenso'); continue; }
+
+      // Filtro de contexto — 5m não pode contradizer
+      if (candles5m && candles5m.length >= 50) {
+        const closes5m  = candles5m.map(c => +c[4]);
+        const context5m = STRAT.contextFilter(closes5m);
+        if (context5m !== 'NEUTRAL' && context5m !== decision.side) {
+          log(`🚫 ${sym} contra-tendência (5m:${context5m} 1m:${decision.side})`);
+          continue;
+        }
+      }
 
       // ── Dimensionamento ───────────────────────────────────────
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
