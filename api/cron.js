@@ -59,8 +59,8 @@ function analyzeBots(closes){
   log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
   // 🔥 melhor lógica (menos bloqueio)
-  if(buy > sell && buy > 0.6) return { side:'BUY', bots:used };
-  if(sell > buy && sell > 0.6) return { side:'SELL', bots:used };
+  if(buy > sell && buy > 0.55) return { side:'BUY', bots:used };
+  if(sell > buy && sell > 0.55) return { side:'SELL', bots:used };
 
   return null;
 }
