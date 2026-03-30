@@ -95,8 +95,11 @@ function analyzeBots(candles) {
 
   log(`🌍 ${regime} | 🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
 
-  if (buy  > sell && buy  > 0.55) return { side: 'BUY',  bots: used, buy, sell, regime };
-  if (sell > buy  && sell > 0.55) return { side: 'SELL', bots: used, buy, sell, regime };
+  // Threshold combinado: score mínimo E margem sobre o adversário
+  // Evita entrar em sinais ambíguos (BUY:0.51 SELL:0.49 = ruído)
+  const diff = Math.abs(buy - sell);
+  if (buy  > sell && buy  > 0.50 && diff > 0.12) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (sell > buy  && sell > 0.50 && diff > 0.12) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
@@ -266,12 +269,22 @@ module.exports = async function runBot() {
       const stillOpen = positions.find(p => p.symbol === prevPos.symbol && p.holdSide === prevPos.holdSide);
       if (!stillOpen) {
         // Esta posição foi fechada externamente (Bitget SL/TP ou manual)
-        const entry   = parseFloat(prevPos.openPriceAvg || 0);
-        const mark    = parseFloat(prevPos.markPrice || entry);
-        const isLong  = prevPos.holdSide === 'long';
-        const pnl     = entry > 0 ? ((isLong ? mark - entry : entry - mark) / entry * 100) : 0;
+        const entry    = parseFloat(prevPos.openPriceAvg || 0);
+        const isLong   = prevPos.holdSide === 'long';
+        // Usar achievedProfits da Bitget se disponível (mais preciso)
+        // Caso contrário estimar com markPrice do ciclo anterior (aproximado)
+        const achieved = parseFloat(prevPos.achievedProfits || 0);
+        const margin   = parseFloat(prevPos.marginSize || 0);
+        let pnl = 0;
+        if (achieved !== 0 && margin > 0) {
+          // PnL real em % da margem
+          pnl = (achieved / margin) * 100;
+        } else {
+          const mark = parseFloat(prevPos.markPrice || entry);
+          pnl = entry > 0 ? ((isLong ? mark - entry : entry - mark) / entry * 100) : 0;
+        }
 
-        log(`📕 ${prevPos.symbol} fechado externamente (Bitget) PnL:~${pnl.toFixed(2)}%`);
+        log(`📕 ${prevPos.symbol} fechado externamente (Bitget) PnL:${pnl.toFixed(2)}%`);
 
         // Atualizar brain com resultado estimado
         const trade = setTradePnL(prevPos.symbol, pnl);
