@@ -164,8 +164,13 @@ module.exports = async (req, res) => {
       if (price > 0) {
         const dp = price > 10000 ? 1 : price > 100 ? 2 : price > 1 ? 4 : 6;
 
-        const slPct = 0.008; // 0.8%
-        const tpPct = 0.016; // 1.6% (2R)
+        const slPct = 0.006; // 0.6% — melhor R/R
+        // TP dinâmico baseado na confiança do sinal
+        const conf = parseFloat(p.confidence || 0.6);
+        const tpPct = conf > 0.75 ? 0.022   // alta confiança → 2.2%
+                    : conf > 0.65 ? 0.016   // média → 1.6%
+                    :               0.012;  // baixa → 1.2%
+        console.log(`📐 TP dinâmico: ${(tpPct*100).toFixed(1)}% (conf:${conf.toFixed(2)})`);
 
         const slPrice = p.side === 'BUY'
           ? parseFloat((price * (1 - slPct)).toFixed(dp))
@@ -210,6 +215,36 @@ module.exports = async (req, res) => {
       }
 
       return res.json(orderRes);
+    }
+
+    // ===== GET PLAN ORDERS =====
+    if (action === 'getPlanOrders') {
+      const d = await bg('GET', `/api/v2/mix/order/orders-plan-pending?symbol=${p.symbol}&productType=USDT-FUTURES&planType=loss_plan`);
+      return res.json(d);
+    }
+
+    // ===== CANCEL PLAN ORDER =====
+    if (action === 'cancelPlan') {
+      const d = await bg('POST', '/api/v2/mix/order/cancel-plan-order', {
+        symbol: p.symbol, productType: 'USDT-FUTURES', orderId: p.orderId,
+      });
+      return res.json(d);
+    }
+
+    // ===== PLACE TPSL (direto, para breakeven) =====
+    if (action === 'placeTpsl') {
+      const d = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+        symbol:       p.symbol,
+        productType:  p.productType || 'USDT-FUTURES',
+        marginCoin:   'USDT',
+        planType:     p.planType,
+        holdSide:     p.holdSide,
+        triggerPrice: String(p.triggerPrice),
+        triggerType:  'mark_price',
+        executePrice: '0',
+        size:         String(p.size),
+      });
+      return res.json(d);
     }
 
     // ===== CLOSE POSITION =====
