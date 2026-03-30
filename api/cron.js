@@ -191,8 +191,10 @@ module.exports = async function runBot() {
       let shouldClose  = false;
       let closeReason  = '';
 
-      // SL hard fallback — Bitget devia ter apanhado mas por segurança
-      if (pnl <= -0.8) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}%`; }
+      // SL hard fallback
+      // Se sem proteção na exchange → SL mais apertado (-0.5%)
+      const slThreshold = TRAIL_STATE[symbol]?.noProtection ? -0.5 : -0.8;
+      if (pnl <= slThreshold) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}% (thresh:${slThreshold}%)`; }
       // TP e trailing geridos pelo exitBot + Bitget
       else if (exitReason === 'TRAIL') { shouldClose = true; closeReason = `TRAIL (pico:${maxPnl.toFixed(2)}% → ${pnl.toFixed(2)}%)`; }
       else if (exitReason === 'TIME')  { shouldClose = true; closeReason = `TIME STOP ${Math.round(timeOpen/60000)}min +${pnl.toFixed(2)}%`; }
@@ -225,6 +227,13 @@ module.exports = async function runBot() {
 
     for (const sym of settings.symbols) {
       if (openSymbols.includes(sym)) continue;
+
+      // Cooldown: evitar retentar símbolo que acabou de abrir/falhar
+      const symState = TRAIL_STATE[sym];
+      if (symState?.lastOpen && Date.now() - symState.lastOpen < 60000) {
+        log(`⏳ ${sym} em cooldown`);
+        continue;
+      }
 
       // Verificar decisão antes de buscar candles (evita chamadas desnecessárias)
       // Será verificado depois da análise — placeholder aqui
@@ -297,12 +306,25 @@ module.exports = async function runBot() {
         confidence: decision.side === 'BUY' ? decision.buy : decision.sell,
       });
 
+      // Validação robusta — data pode ser null/undefined/sem code
+      if (!data) {
+        log(`❌ ${sym}: sem resposta da API`);
+        continue;
+      }
       if (data.code !== '00000') {
-        log(`❌ erro ${data.msg}`);
+        log(`❌ ${sym}: ${JSON.stringify(data).slice(0, 100)}`);
         continue;
       }
 
       log(`🚀 ${decision.side} ${sym} @ ${price}`);
+      // Cooldown: não tentar este símbolo por 60s após abrir
+      TRAIL_STATE[sym] = TRAIL_STATE[sym] || {};
+      TRAIL_STATE[sym].lastOpen = Date.now();
+      // Marcar se a posição ficou sem proteção na exchange
+      if (data.warning) {
+        TRAIL_STATE[sym].noProtection = true;
+        log(`⚠️ ${sym} sem SL/TP na Bitget — modo proteção manual ativo`);
+      }
 
       await saveTrade({ symbol: sym, side: decision.side, qty, bots: decision.bots, time: Date.now() });
       await saveEquity(balance);
