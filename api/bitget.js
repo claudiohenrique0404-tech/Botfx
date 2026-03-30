@@ -138,7 +138,7 @@ module.exports = async (req, res) => {
       }
 
       if (!levOk) {
-        return res.status(500).json({ error: `Nao foi possivel definir leverage ${lev}x` });
+        return res.status(500).json({ code: 'LEV_FAIL', msg: `Nao foi possivel definir leverage ${lev}x` });
       }
 
       await new Promise(r => setTimeout(r, 300));
@@ -200,12 +200,11 @@ module.exports = async (req, res) => {
         const tpOk = tpRes && tpRes.code === '00000';
 
         if (!slOk || !tpOk) {
-          // SL ou TP falharam — fechar posição por segurança
-          console.error(`❌ SL/TP falharam ${sym} (SL:${slOk} TP:${tpOk}) — a fechar`);
-          await bg('POST', '/api/v2/mix/order/close-positions', {
-            symbol: sym, productType: pt, holdSide,
-          }).catch(e => console.error('close fail:', e.message));
-          return res.json({ error: 'SL/TP failed — position closed for safety' });
+          // SL/TP falharam — logar mas NÃO fechar
+          // O loop do cron gere SL/TP manualmente como fallback
+          console.error(`⚠️ SL/TP parcial ${sym} (SL:${slOk} TP:${tpOk}) — posição mantida`);
+          // Retornar sucesso com aviso — a posição está aberta
+          return res.json({ code: '00000', data: orderRes.data, warning: 'SL/TP parcial' });
         }
 
         console.log(`🛡️ SL confirmado: ${slPrice}`);
