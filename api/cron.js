@@ -29,22 +29,26 @@ function log(msg) {
   if (LOGS.length > 200) LOGS.pop();
 }
 
-// ===== CONSENSO (6 bots) =====
-// candles = array completo [{o,h,l,c,v}] ou closes simples
+// ===== CONSENSO (6 bots + regime) =====
 function analyzeBots(candles) {
-  // Suporta tanto array de closes como array de candles completos
   const closes = Array.isArray(candles) && typeof candles[0] === 'object'
     ? candles.map(c => parseFloat(c[4] || c.c || 0)).filter(Boolean)
     : candles;
 
-  const signals = {
+  // Detectar regime de mercado
+  const regime = STRAT.detectRegime(closes);
+
+  const rawSignals = {
     trend:      STRAT.trendBot(closes),
     rsi:        STRAT.rsiBot(closes),
     momentum:   STRAT.momentumBot(closes),
-    breakout:   STRAT.breakoutBot(closes),
-    volume:     STRAT.volumeBot(candles),      // precisa de candles completos
+    breakout:   STRAT.breakoutBot(candles),    // usa candles completos para volume
+    volume:     STRAT.volumeBot(candles),
     volatility: STRAT.volatilityBot(closes),
   };
+
+  // Filtrar sinais pelo regime — desliga bots inadequados ao contexto
+  const signals = STRAT.filterByRegime(rawSignals, regime);
 
   const weights = BRAIN.getWeights();
   let buy = 0, sell = 0, used = [];
@@ -58,10 +62,10 @@ function analyzeBots(candles) {
     used.push(k);
   }
 
-  log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
+  log(`🌍 ${regime} | 🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
 
-  if (buy  > sell && buy  > 0.55) return { side: 'BUY',  bots: used, buy, sell };
-  if (sell > buy  && sell > 0.55) return { side: 'SELL', bots: used, buy, sell };
+  if (buy  > sell && buy  > 0.55) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (sell > buy  && sell > 0.55) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
