@@ -1,183 +1,354 @@
 <!DOCTYPE html>
-<html>
+
+<html lang="pt">
 <head>
-  <title>Trading Desk</title>
-
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <style>
-    body {
-      background:#0f172a;
-      color:white;
-      font-family:Arial;
-      padding:20px;
-    }
-
-    .box {
-      background:#1e293b;
-      padding:15px;
-      margin-bottom:15px;
-      border-radius:10px;
-    }
-
-    button {
-      padding:10px 20px;
-      border:none;
-      background:#22c55e;
-      color:white;
-      border-radius:6px;
-      cursor:pointer;
-      font-weight:bold;
-    }
-
-    canvas {
-      max-height:300px;
-    }
-
-    #logs {
-      font-size:12px;
-      max-height:250px;
-      overflow:auto;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BotFX">
+<meta name="theme-color" content="#080a0e">
+<title>BotFX</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23080a0e'/%3E%3Ctext y='72' x='12' font-size='68' font-family='monospace'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+:root{
+  --bg:#080a0e;--bg2:#0d1017;--bg3:#131720;--border:#1e2535;
+  --green:#00e676;--red:#ff3d5a;--amber:#ffb300;--blue:#4fc3f7;
+  --text:#e2e8f0;--muted:#4a5568;--font:'JetBrains Mono',monospace;
+}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font);height:100%;overflow:hidden;-webkit-font-smoothing:antialiased;}
+#app{display:flex;flex-direction:column;height:100dvh;padding-top:env(safe-area-inset-top,44px);padding-bottom:env(safe-area-inset-bottom,34px);}
+#hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);background:rgba(8,10,14,0.95);backdrop-filter:blur(20px);flex-shrink:0;}
+.hdr-left{display:flex;align-items:center;gap:10px;}
+.logo{font-size:15px;font-weight:700;letter-spacing:0.12em;color:var(--amber);}
+#sdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:all 0.3s;}
+#sdot.on{background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 1.5s infinite;}
+.hdr-right{display:flex;align-items:center;gap:8px;}
+#lu{font-size:9px;color:var(--muted);}
+#tbtn{background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--font);font-size:9px;font-weight:700;letter-spacing:0.1em;padding:5px 10px;border-radius:6px;cursor:pointer;transition:all 0.2s;}
+#tbtn.on{border-color:var(--green);color:var(--green);}
+#tbtn.off{border-color:var(--red);color:var(--red);}
+#eqbar{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:8px;flex-shrink:0;}
+#bal{font-size:26px;font-weight:700;}
+#pdl{font-size:11px;font-weight:500;}
+.pos{color:var(--green);}
+.neg{color:var(--red);}
+.neu{color:var(--muted);}
+#eqsub{font-size:9px;color:var(--muted);margin-left:auto;letter-spacing:0.08em;}
+#nav{display:flex;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.nb{flex:1;padding:9px 4px;background:none;border:none;color:var(--muted);font-family:var(--font);font-size:8px;letter-spacing:0.08em;cursor:pointer;border-bottom:2px solid transparent;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all 0.15s;}
+.nb.on{color:var(--amber);border-bottom-color:var(--amber);}
+.nbi{font-size:14px;}
+.pg{display:none;flex:1;overflow:hidden;flex-direction:column;}
+.pg.on{display:flex;}
+.scr{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;padding:12px 14px;}
+.scr::-webkit-scrollbar{display:none;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px;}
+.ct{font-size:8px;color:var(--muted);letter-spacing:0.15em;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;}
+.ct span{color:var(--amber);}
+.pc{border-radius:12px;padding:14px;margin-bottom:10px;border:1px solid;}
+.pc.long{background:rgba(0,230,118,0.04);border-color:rgba(0,230,118,0.2);}
+.pc.short{background:rgba(255,61,90,0.04);border-color:rgba(255,61,90,0.2);}
+.ph{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+.psym{font-size:18px;font-weight:700;}
+.pdir{font-size:9px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:0.1em;}
+.pdir.long{background:rgba(0,230,118,0.15);color:var(--green);}
+.pdir.short{background:rgba(255,61,90,0.15);color:var(--red);}
+.ppnl{font-size:22px;font-weight:700;}
+.pgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;}
+.pk{font-size:7px;color:var(--muted);letter-spacing:0.1em;margin-bottom:2px;}
+.pv{font-size:11px;font-weight:600;}
+.pbar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:6px;}
+.pfill{height:100%;border-radius:2px;transition:width 0.5s;}
+.plvl{display:flex;justify-content:space-between;font-size:8px;color:var(--muted);}
+.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+.sbox{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;}
+.sl2{font-size:7px;color:var(--muted);letter-spacing:0.12em;margin-bottom:6px;}
+.sv{font-size:20px;font-weight:700;}
+.ss{font-size:8px;color:var(--muted);margin-top:3px;}
+.br{margin-bottom:10px;}
+.bh{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+.bn{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;}
+.bp{font-size:10px;font-weight:700;}
+.bb{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+.bf{height:100%;border-radius:2px;background:var(--amber);transition:width 0.6s;}
+#eqc{width:100%;display:block;}
+.tr{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.tsym{font-size:12px;font-weight:600;}
+.tmeta{font-size:8px;color:var(--muted);margin-top:2px;}
+.tpnl{font-size:13px;font-weight:700;}
+.bdg{display:inline-block;font-size:8px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:0.08em;}
+.bdg.buy{background:rgba(0,230,118,0.12);color:var(--green);border:1px solid rgba(0,230,118,0.3);}
+.bdg.sell{background:rgba(255,61,90,0.12);color:var(--red);border:1px solid rgba(255,61,90,0.3);}
+.le{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03);align-items:flex-start;}
+.lt{font-size:8px;color:var(--muted);flex-shrink:0;margin-top:1px;}
+.lm{font-size:10px;line-height:1.5;flex:1;word-break:break-all;}
+.crow{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.cl{font-size:12px;}
+.cs{font-size:9px;color:var(--muted);margin-top:2px;}
+.ci{background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--font);font-size:13px;padding:6px 10px;width:90px;text-align:right;outline:none;}
+.ci:focus{border-color:var(--amber);}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:10px;font-family:var(--font);font-size:12px;font-weight:700;letter-spacing:0.08em;cursor:pointer;border:1px solid;width:100%;margin-bottom:8px;transition:all 0.15s;}
+.btn:active{transform:scale(0.97);opacity:0.8;}
+.bg{background:rgba(0,230,118,0.08);border-color:rgba(0,230,118,0.3);color:var(--green);}
+.br2{background:rgba(255,61,90,0.08);border-color:rgba(255,61,90,0.3);color:var(--red);}
+.empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:11px;line-height:2;}
+.ei{font-size:32px;margin-bottom:12px;}
+#notifs{position:fixed;top:calc(env(safe-area-inset-top,44px)+60px);left:10px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:6px;pointer-events:none;}
+.nf{background:var(--bg3);border-radius:10px;padding:10px 14px;font-size:11px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,0.6);border-left:3px solid;animation:nin 0.3s ease,nout 0.3s ease 3.7s forwards;}
+@keyframes nin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes nout{from{opacity:1}to{opacity:0;transform:translateY(-8px)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+#ld{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
+.ll{font-size:42px;animation:pulse 1.2s infinite;}
+.lt2{font-size:11px;color:var(--muted);letter-spacing:0.15em;}
+</style>
 </head>
-
 <body>
+<div id="ld"><div class="ll">⚡</div><div class="lt2">BOTFX A LIGAR...</div></div>
+<div id="app" style="display:none">
 
-<h1>📊 Trading Desk</h1>
-
-<div class="box">
-  <button id="btn" onclick="toggle()">LIGAR BOT</button>
+<div id="hdr">
+  <div class="hdr-left">
+    <div id="sdot"></div>
+    <div class="logo">BOT<span style="color:var(--text)">FX</span></div>
+    <div id="mbdg" style="font-size:8px;color:var(--muted);letter-spacing:0.1em">OFF</div>
+  </div>
+  <div class="hdr-right">
+    <div id="lu">--:--</div>
+    <button id="tbtn" onclick="toggleBot()">LIGAR</button>
+  </div>
 </div>
 
-<div class="box">
-  <h3>📈 Equity</h3>
-  <canvas id="chart"></canvas>
+<div id="eqbar">
+  <div id="bal">$---.--</div>
+  <div id="pdl" class="neu">$0.00</div>
+  <div id="eqsub">EQUITY REAL</div>
 </div>
 
-<div class="box">
-  <h3>📜 Trades</h3>
-  <div id="history">loading...</div>
+<div id="nav">
+  <button class="nb on" onclick="go('dash')"  id="n-dash"><span class="nbi">⚡</span>LIVE</button>
+  <button class="nb"    onclick="go('stats')" id="n-stats"><span class="nbi">📊</span>STATS</button>
+  <button class="nb"    onclick="go('log')"   id="n-log"><span class="nbi">📡</span>LOG</button>
+  <button class="nb"    onclick="go('cfg')"   id="n-cfg"><span class="nbi">⚙️</span>CONFIG</button>
 </div>
 
-<div class="box">
-  <h3>📡 Logs</h3>
-  <div id="logs">loading...</div>
+<div class="pg on" id="pg-dash">
+  <div class="scr">
+    <div id="plist"></div>
+    <div class="card"><div class="ct">🧠 BRAIN WEIGHTS</div><div id="brain"></div></div>
+  </div>
 </div>
+
+<div class="pg" id="pg-stats">
+  <div class="scr">
+    <div class="sgrid" id="sgrid"></div>
+    <div class="card"><div class="ct">CURVA DE EQUITY</div><svg id="eqc" height="100" viewBox="0 0 340 100"></svg></div>
+    <div class="card"><div class="ct">TRADES <span id="tcnt"></span></div><div id="tlist"></div></div>
+  </div>
+</div>
+
+<div class="pg" id="pg-log">
+  <div class="scr">
+    <div class="card"><div class="ct">LOG <span id="lcnt"></span></div><div id="llist"></div></div>
+  </div>
+</div>
+
+<div class="pg" id="pg-cfg">
+  <div class="scr">
+    <div class="card">
+      <div class="ct">SERVIDOR</div>
+      <input class="ci" type="url" id="curl" placeholder="https://botfx-xxx.onrender.com" style="width:100%;margin-top:4px" autocomplete="off" autocorrect="off" autocapitalize="none">
+    </div>
+    <div class="card">
+      <div class="ct">PARÂMETROS</div>
+      <div class="crow"><div><div class="cl">Leverage</div><div class="cs">Alavancagem</div></div><input class="ci" type="number" id="clev" value="3" min="1" max="10"></div>
+    </div>
+    <div class="card">
+      <div class="ct">AÇÕES</div>
+      <button class="btn bg" onclick="saveConfig()">💾 GUARDAR</button>
+      <button class="btn br2" onclick="closeAll()">🛑 FECHAR TUDO</button>
+    </div>
+    <div class="card">
+      <div class="ct">📲 INSTALAR</div>
+      <div style="font-size:10px;color:var(--muted);line-height:2.2">Safari → <strong style="color:var(--text)">Partilhar ↑</strong> → <strong style="color:var(--green)">"Adicionar ao Ecrã Principal"</strong></div>
+    </div>
+  </div>
+</div>
+
+</div>
+<div id="notifs"></div>
 
 <script>
+const S={url:localStorage.getItem('bfx_url')||'',active:false,balance:0,startBal:0,positions:[],trades:[],equity:[],logs:[],weights:{},stats:{}};
 
-let chart;
+window.addEventListener('load',()=>{
+  const u=localStorage.getItem('bfx_url')||'';
+  if(u)document.getElementById('curl').value=u;
+  setTimeout(()=>{
+    document.getElementById('ld').style.display='none';
+    document.getElementById('app').style.display='flex';
+    if(!S.url){go('cfg');notif('⚙️ Configura o URL do servidor','#ffb300');}
+    else{refresh();setInterval(refresh,4000);}
+  },800);
+});
 
-// ===== BOT =====
-async function toggle(){
-  await fetch('/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'toggleBot' })
-  });
-  updateButton();
+async function api(body){
+  if(!S.url)return null;
+  try{const r=await fetch(S.url+'/api/bitget',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return r.json();}catch{return null;}
 }
+async function getStats(){if(!S.url)return null;try{return(await fetch(S.url+'/api/stats')).json();}catch{return null;}}
+async function getLogs(){if(!S.url)return null;try{return(await fetch(S.url+'/api/cron')).json();}catch{return null;}}
 
-async function updateButton(){
-  const r = await fetch('/api/bitget',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'getSettings' })
-  });
-
-  const d = await r.json();
-
-  document.getElementById('btn').innerText =
-    d.active ? 'DESLIGAR BOT' : 'LIGAR BOT';
-}
-
-// ===== LOAD =====
-async function load(){
-
-  // logs
+async function refresh(){
   try{
-    const cron = await (await fetch('/api/cron')).json();
-    logs.innerHTML = cron.logs?.join('<br>') || 'sem logs';
-  }catch{
-    logs.innerHTML = 'erro logs';
-  }
-
-  // stats
-  try{
-    const stats = await (await fetch('/api/stats')).json();
-
-    // trades
-    history.innerHTML =
-      (stats.trades || [])
-        .map(t => `${t.side} ${t.symbol} (${t.qty})`)
-        .join('<br>') || 'sem trades';
-
-    // equity chart
-    const equity = stats.equity || [];
-
-    const labels = equity.map(e =>
-      new Date(e.time).toLocaleTimeString()
-    );
-
-    const values = equity.map(e => e.value);
-
-    renderChart(labels, values);
-
-  }catch{
-    history.innerHTML = 'erro stats';
-  }
-
-  updateButton();
+    const[cfg,bal,pos,st,lg]=await Promise.all([api({action:'getSettings'}),api({action:'balance'}),api({action:'positions'}),getStats(),getLogs()]);
+    if(!cfg)return;
+    S.active=cfg.active;updStatus();
+    if(bal&&bal[0]){const b=parseFloat(bal[0].available||0);if(!S.startBal)S.startBal=b;S.balance=b;updBal();}
+    if(Array.isArray(pos)){S.positions=pos;renderPos();}
+    if(st){S.trades=st.trades||[];S.equity=st.equity||[];S.stats=st;S.weights=st.botRanking||{};renderStats();renderBrain();}
+    if(lg&&lg.logs){S.logs=lg.logs;renderLogs();}
+    const n=new Date();document.getElementById('lu').textContent=[n.getHours(),n.getMinutes(),n.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+  }catch{}
 }
 
-// ===== CHART =====
-function renderChart(labels, data){
-
-  const ctx = document.getElementById('chart');
-
-  if(chart){
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = data;
-    chart.update();
-    return;
-  }
-
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Equity',
-        data: data,
-        borderWidth: 2,
-        tension: 0.3
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: {
-          labels: { color: 'white' }
-        }
-      },
-      scales: {
-        x: {
-          ticks: { color: 'white' }
-        },
-        y: {
-          ticks: { color: 'white' }
-        }
-      }
-    }
-  });
+function updStatus(){
+  const d=document.getElementById('sdot'),b=document.getElementById('tbtn'),m=document.getElementById('mbdg');
+  if(S.active){d.className='on';b.className='off';b.textContent='PARAR';m.textContent='LIVE';m.style.color='var(--green)';}
+  else{d.className='';b.className='on';b.textContent='LIGAR';m.textContent='OFF';m.style.color='var(--muted)';}
 }
 
-// ===== LOOP =====
-setInterval(load, 4000);
-load();
+async function toggleBot(){
+  const r=await api({action:'toggleBot'});
+  if(r){S.active=r.active;updStatus();notif(r.active?'▶ Bot ligado':'⏹ Bot parado',r.active?'#00e676':'#ff3d5a');}
+}
 
+function updBal(){
+  document.getElementById('bal').textContent='$'+S.balance.toFixed(2);
+  const d=S.balance-S.startBal;
+  const e=document.getElementById('pdl');
+  e.textContent=(d>=0?'+':'')+d.toFixed(2)+'$';
+  e.className=d>0?'pos':d<0?'neg':'neu';
+}
+
+function fp(p){
+  if(!p&&p!==0)return'—';
+  if(p>=10000)return p.toFixed(0);if(p>=100)return p.toFixed(2);
+  if(p>=1)return p.toFixed(4);if(p>=0.01)return p.toFixed(5);return p.toFixed(8);
+}
+
+function renderPos(){
+  const el=document.getElementById('plist');
+  if(!S.positions.length){el.innerHTML='<div class="empty"><div class="ei">💤</div>Sem posições abertas<br><span style="font-size:9px">Bot à espera de sinal</span></div>';return;}
+  el.innerHTML=S.positions.map(pos=>{
+    const lg=pos.holdSide==='long';
+    const en=parseFloat(pos.openPriceAvg||0),mk=parseFloat(pos.markPrice||0);
+    const pnl=parseFloat(pos.unrealizedPL||0);
+    const pct=en>0?((lg?mk-en:en-mk)/en*100):0;
+    const sz=parseFloat(pos.total||0),lv=parseInt(pos.leverage||1);
+    const prog=Math.min(100,Math.max(0,(pct/1.6)*100));
+    const bc=pct>=0?'#00e676':'#ff3d5a';
+    return`<div class="pc ${lg?'long':'short'}">
+      <div class="ph">
+        <div><div class="psym">${pos.symbol.replace('USDT','')}<span style="font-size:11px;color:var(--muted)">/USDT</span></div><div class="pdir ${lg?'long':'short'}">${lg?'LONG':'SHORT'} ${lv}x</div></div>
+        <div style="text-align:right"><div class="ppnl ${pnl>=0?'pos':'neg'}">${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(3)}</div><div style="font-size:10px;color:${bc}">${pct>=0?'+':''}${pct.toFixed(3)}%</div></div>
+      </div>
+      <div class="pgrid">
+        <div><div class="pk">ENTRY</div><div class="pv">${fp(en)}</div></div>
+        <div><div class="pk">MARK</div><div class="pv">${fp(mk)}</div></div>
+        <div><div class="pk">SIZE</div><div class="pv">${sz}</div></div>
+      </div>
+      <div class="pbar"><div class="pfill" style="width:${prog}%;background:${bc}"></div></div>
+      <div class="plvl">
+        <span style="color:var(--red)">SL ${fp(lg?en*0.992:en*1.008)}</span>
+        <span style="font-size:7px">${prog.toFixed(0)}% do TP</span>
+        <span style="color:var(--green)">TP ${fp(lg?en*1.016:en*0.984)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderStats(){
+  const ws=S.trades.filter(t=>typeof t.pnl==='number'&&t.pnl>0).length;
+  const tot=S.trades.filter(t=>typeof t.pnl==='number').length;
+  const wr=tot?((ws/tot)*100).toFixed(0):'—';
+  const tp=S.trades.reduce((a,t)=>a+(typeof t.pnl==='number'?t.pnl:0),0);
+  document.getElementById('sgrid').innerHTML=[
+    {l:'WIN RATE',v:tot?wr+'%':'—',s:`${ws}W / ${tot-ws}L`,c:parseFloat(wr)>50?'var(--green)':'var(--red)'},
+    {l:'TOTAL PnL',v:(tp>=0?'+':'')+tp.toFixed(2)+'%',s:`${tot} trades`,c:tp>=0?'var(--green)':'var(--red)'},
+    {l:'SHARPE',v:S.stats.sharpe||'—',s:'ratio',c:'var(--amber)'},
+    {l:'DRAWDOWN',v:S.stats.drawdown?(S.stats.drawdown*100).toFixed(1)+'%':'—',s:'máx',c:'var(--red)'},
+  ].map(x=>`<div class="sbox"><div class="sl2">${x.l}</div><div class="sv" style="color:${x.c}">${x.v}</div><div class="ss">${x.s}</div></div>`).join('');
+  if(S.equity.length>1){
+    const vs=S.equity.slice(-60).map(e=>e.value);
+    const mn=Math.min(...vs),mx=Math.max(...vs),rng=mx-mn||1;
+    const W=340,H=100;
+    const pts=vs.map((v,i)=>`${(i/(vs.length-1))*W},${H-((v-mn)/rng)*(H-10)-5}`).join(' ');
+    const up=vs.at(-1)>=vs[0];
+    document.getElementById('eqc').innerHTML=`<polyline points="${pts}" fill="none" stroke="${up?'#00e676':'#ff3d5a'}" stroke-width="2" opacity="0.9"/><circle cx="${W}" cy="${H-((vs.at(-1)-mn)/rng)*(H-10)-5}" r="3" fill="${up?'#00e676':'#ff3d5a'}"/>`;
+  }
+  const rc=[...S.trades].reverse().slice(0,15);
+  document.getElementById('tcnt').textContent=S.trades.length+' total';
+  document.getElementById('tlist').innerHTML=rc.length?rc.map(t=>{
+    const pc=t.pnl>0?'var(--green)':t.pnl<0?'var(--red)':'var(--muted)';
+    const tm=t.time?new Date(t.time).toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'}):'—';
+    return`<div class="tr"><div><div class="tsym">${t.symbol?.replace('USDT','')||'—'} <span class="bdg ${(t.side||'buy').toLowerCase()}">${t.side||'—'}</span></div><div class="tmeta">${tm} · ${t.qty||'—'}</div></div><div class="tpnl" style="color:${pc}">${typeof t.pnl==='number'?(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'%':'—'}</div></div>`;
+  }).join(''):'<div class="empty">Sem trades</div>';
+}
+
+function renderBrain(){
+  const bots=['trend','rsi','momentum'],lbs={trend:'TREND',rsi:'RSI',momentum:'MOMENTUM'};
+  document.getElementById('brain').innerHTML=bots.map(b=>{
+    const w=S.weights[b]||0.5,p=(w*100).toFixed(0);
+    const c=w>0.6?'var(--green)':w<0.4?'var(--red)':'var(--amber)';
+    return`<div class="br"><div class="bh"><div class="bn">${lbs[b]}</div><div class="bp" style="color:${c}">${p}%</div></div><div class="bb"><div class="bf" style="width:${p}%;background:${c}"></div></div></div>`;
+  }).join('');
+}
+
+function renderLogs(){
+  document.getElementById('lcnt').textContent=S.logs.length+' entradas';
+  document.getElementById('llist').innerHTML=S.logs.slice(0,60).map(e=>{
+    const t=e.match(/^\[(\d{2}:\d{2}:\d{2})\]/)?.[1]||'';
+    const m=e.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/,'');
+    const c=m.includes('🚀')||m.includes('✅')?'var(--green)':m.includes('❌')||m.includes('🛑')?'var(--red)':m.includes('⚠️')||m.includes('🔥')?'var(--amber)':m.includes('💰')||m.includes('📊')?'var(--blue)':'var(--text)';
+    return`<div class="le"><div class="lt">${t}</div><div class="lm" style="color:${c}">${m}</div></div>`;
+  }).join('')||'<div class="empty">Sem logs</div>';
+}
+
+function saveConfig(){
+  const u=document.getElementById('curl').value.trim().replace(/\/$/,'');
+  if(!u||!u.startsWith('http')){notif('⚠️ URL inválido','#ff3d5a');return;}
+  S.url=u;localStorage.setItem('bfx_url',u);
+  notif('✅ Config guardada','#00e676');
+  refresh();setInterval(refresh,4000);
+}
+
+async function closeAll(){
+  if(!confirm('Fechar TODAS as posições?'))return;
+  for(const p of S.positions)await api({action:'close',symbol:p.symbol,holdSide:p.holdSide});
+  notif('🛑 Posições fechadas','#ff3d5a');refresh();
+}
+
+function go(p){
+  document.querySelectorAll('.pg').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.nb').forEach(x=>x.classList.remove('on'));
+  document.getElementById('pg-'+p)?.classList.add('on');
+  document.getElementById('n-'+p)?.classList.add('on');
+}
+
+function notif(msg,color='#ffb300'){
+  const el=document.createElement('div');
+  el.className='nf';el.style.borderLeftColor=color;el.style.color=color;el.textContent=msg;
+  document.getElementById('notifs').prepend(el);
+  if(navigator.vibrate)navigator.vibrate([60,30,60]);
+  setTimeout(()=>el.remove(),4300);
+}
+
+document.addEventListener('touchmove',e=>{if(!e.target.closest('.scr'))e.preventDefault();},{passive:false});
 </script>
 
 </body>
