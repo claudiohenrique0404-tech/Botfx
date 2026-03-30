@@ -131,6 +131,34 @@ module.exports = async function runBot() {
         TRAIL_STATE[symbol].maxPnl = pnl;
       }
 
+      // Breakeven: se passou 0.5% de lucro, atualizar SL para entry na Bitget
+      if (pnl >= 0.5 && !TRAIL_STATE[symbol].beSet) {
+        TRAIL_STATE[symbol].beSet = true;
+        const dp = entry > 10000 ? 1 : entry > 100 ? 2 : entry > 1 ? 4 : 6;
+        const beBuf = entry * 0.001; // pequeno buffer acima do entry
+        const bePrice = holdSide === 'long'
+          ? parseFloat((entry + beBuf).toFixed(dp))
+          : parseFloat((entry - beBuf).toFixed(dp));
+
+        // Cancelar SL antigo e colocar novo em breakeven
+        try {
+          const plans = await callApi(base, { action: 'getPlanOrders', symbol, holdSide });
+          const slOrder = (plans?.data?.entrustedList || []).find(o => o.planType === 'loss_plan');
+          if (slOrder?.orderId) {
+            await callApi(base, { action: 'cancelPlan', symbol, orderId: slOrder.orderId });
+            await new Promise(r => setTimeout(r, 200));
+          }
+          await callApi(base, {
+            action: 'placeTpsl', symbol, holdSide,
+            planType: 'loss_plan', triggerPrice: bePrice,
+            size, productType: 'USDT-FUTURES',
+          });
+          log(`🔒 BE ${symbol} SL→${bePrice} (entrada protegida)`);
+        } catch(e) {
+          log(`⚠️ BE ${symbol} falhou: ${e.message}`);
+        }
+      }
+
       const maxPnl   = TRAIL_STATE[symbol].maxPnl;
       const timeOpen = Date.now() - (TRAIL_STATE[symbol].openTime || Date.now());
       const exitReason = STRAT.exitBot(pnl, timeOpen, maxPnl);
@@ -140,10 +168,9 @@ module.exports = async function runBot() {
       let shouldClose  = false;
       let closeReason  = '';
 
-      // 1. TP/SL hard (Bitget fallback)
-      if (pnl >= 1.6)  { shouldClose = true; closeReason = `TP +${pnl.toFixed(2)}%`; }
-      else if (pnl <= -0.8) { shouldClose = true; closeReason = `SL ${pnl.toFixed(2)}%`; }
-      // 2. Exit bot (trailing + time stop)
+      // SL hard fallback — Bitget devia ter apanhado mas por segurança
+      if (pnl <= -0.8) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}%`; }
+      // TP e trailing geridos pelo exitBot + Bitget
       else if (exitReason === 'TRAIL') { shouldClose = true; closeReason = `TRAIL (pico:${maxPnl.toFixed(2)}% → ${pnl.toFixed(2)}%)`; }
       else if (exitReason === 'TIME')  { shouldClose = true; closeReason = `TIME STOP ${Math.round(timeOpen/60000)}min +${pnl.toFixed(2)}%`; }
       else if (exitReason === 'TIME_WEAK') { shouldClose = true; closeReason = `TRADE FRACA ${Math.round(timeOpen/60000)}min ${pnl.toFixed(2)}%`; }
@@ -171,9 +198,13 @@ module.exports = async function runBot() {
     }
 
     const openSymbols = positions.map(p => p.symbol);
+    const openSides   = positions.map(p => p.holdSide); // 'long' ou 'short'
 
     for (const sym of settings.symbols) {
       if (openSymbols.includes(sym)) continue;
+
+      // Verificar decisão antes de buscar candles (evita chamadas desnecessárias)
+      // Será verificado depois da análise — placeholder aqui
 
       log(`🔍 ${sym}`);
 
@@ -194,6 +225,13 @@ module.exports = async function runBot() {
       // Decisão no 1m
       const decision = analyzeBots(candles1m);
       if (!decision) { log('❌ sem consenso'); continue; }
+
+      // Correlação: evitar 2 longs ou 2 shorts ao mesmo tempo
+      const decSide = decision.side === 'BUY' ? 'long' : 'short';
+      if (positions.length > 0 && openSides.every(s => s === decSide)) {
+        log(`⚠️ ${sym} correlação — já tens ${positions.length} ${decSide}(s)`);
+        continue;
+      }
 
       // Filtro de contexto — 5m não pode contradizer
       if (candles5m && candles5m.length >= 50) {
@@ -218,11 +256,12 @@ module.exports = async function runBot() {
 
       // ── Abrir — passar price para SL/TP serem definidos na Bitget ──
       const data = await callApi(base, {
-        action:   'order',
-        symbol:   sym,
-        side:     decision.side,
-        quantity: qty.toFixed(4),
+        action:     'order',
+        symbol:     sym,
+        side:       decision.side,
+        quantity:   qty.toFixed(4),
         price,
+        confidence: decision.side === 'BUY' ? decision.buy : decision.sell,
       });
 
       if (data.code !== '00000') {
