@@ -175,15 +175,25 @@ module.exports = async (req, res) => {
           executePrice: '0', size: String(Math.abs(p.quantity)),
         };
 
-        await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+        const slRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
           ...tpslBase, planType: 'loss_plan', triggerPrice: String(slPrice),
-        }).catch(e => console.log('SL fail:', e.message));
+        }).catch(e => ({ code: 'ERR', msg: e.message }));
 
-        await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+        if (!slRes || slRes.code !== '00000') {
+          console.error(`❌ SL FALHOU ${sym}:`, slRes?.msg || slRes);
+        } else {
+          console.log(`🛡️ SL confirmado: ${slPrice}`);
+        }
+
+        const tpRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
           ...tpslBase, planType: 'profit_plan', triggerPrice: String(tpPrice),
-        }).catch(e => console.log('TP fail:', e.message));
+        }).catch(e => ({ code: 'ERR', msg: e.message }));
 
-        console.log(`🛡️ SL:${slPrice} 🎯 TP:${tpPrice}`);
+        if (!tpRes || tpRes.code !== '00000') {
+          console.error(`❌ TP FALHOU ${sym}:`, tpRes?.msg || tpRes);
+        } else {
+          console.log(`🎯 TP confirmado: ${tpPrice}`);
+        }
       } else {
         console.log('⚠️ price não enviado — SL/TP não definidos');
       }
