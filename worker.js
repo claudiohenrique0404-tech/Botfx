@@ -1,4 +1,4 @@
-const runBot = require('./cron');
+const runBot = require('./api/cron');
 const http = require('http');
 
 function sleep(ms){
