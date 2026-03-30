@@ -3,7 +3,7 @@ const fetch = global.fetch || require('node-fetch');
 
 const BASE = 'https://api.bitget.com';
 
-// 🔥 SETTINGS GLOBAIS
+// ===== SETTINGS =====
 if(!global.BOT_SETTINGS){
   global.BOT_SETTINGS = {
     active: true,
@@ -35,7 +35,6 @@ module.exports = async (req, res) => {
 
   try{
 
-    // 🔥 FIX BODY VERCEL
     let body = req.body;
 
     if (!body || typeof body === "string") {
@@ -124,9 +123,26 @@ module.exports = async (req, res) => {
     // ===== ORDER =====
     if (action === 'order') {
 
-      const side = p.close
-        ? (p.side === 'BUY' ? 'sell' : 'buy')
-        : (p.side === 'BUY' ? 'buy' : 'sell');
+      // 🔥 distinguir abertura vs fecho corretamente
+      let side;
+      let tradeSide;
+      let reduceOnly = false;
+
+      if(p.close){
+        // FECHAR POSIÇÃO
+        tradeSide = 'close';
+        reduceOnly = true;
+
+        // inverter lado
+        side = p.side === 'BUY' ? 'sell' : 'buy';
+
+      }else{
+        // ABRIR POSIÇÃO
+        tradeSide = 'open';
+        reduceOnly = false;
+
+        side = p.side === 'BUY' ? 'buy' : 'sell';
+      }
 
       const positionSide = p.side === 'BUY' ? 'long' : 'short';
 
@@ -137,11 +153,11 @@ module.exports = async (req, res) => {
         marginMode: 'isolated',
         side,
         positionSide,
-        tradeSide: p.close ? 'close' : 'open',
+        tradeSide,
         orderType: 'market',
         size: String(Math.abs(p.quantity)),
         leverage: "3",
-        reduceOnly: p.close ? true : false
+        ...(reduceOnly ? { reduceOnly: true } : {})
       });
 
       const r = await fetch(BASE + '/api/v2/mix/order/place-order', {
