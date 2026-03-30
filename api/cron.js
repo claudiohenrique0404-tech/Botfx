@@ -5,6 +5,34 @@ const BRAIN = require('./brain');
 
 const fetch = global.fetch || require('node-fetch');
 
+// Redis direto para TRAIL_STATE (evitar duplicate code)
+let _redis = null;
+try {
+  if (process.env.UPSTASH_REDIS_REST_URL) {
+    const { Redis } = require('@upstash/redis');
+    _redis = new Redis({
+      url:   process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+  }
+} catch {}
+
+async function persistTrailState() {
+  if (!_redis) return;
+  try { await _redis.set('botfx:trail', TRAIL_STATE); } catch {}
+}
+
+async function loadTrailState() {
+  if (!_redis) return;
+  try {
+    const saved = await _redis.get('botfx:trail');
+    if (saved && typeof saved === 'object') {
+      Object.assign(TRAIL_STATE, saved);
+      console.log('📦 TRAIL_STATE carregado:', Object.keys(saved).length, 'símbolos');
+    }
+  } catch {}
+}
+
 // ===== LOGS =====
 if (!global.LOGS) global.LOGS = [];
 let LOGS = global.LOGS;
@@ -17,8 +45,10 @@ const MAX_TRADES_DAY = 10;
 const MAX_DAILY_LOSS = -3; // %
 
 // Trailing state por símbolo — persiste entre ciclos de 5s
-// { symbol: { maxPnl, openTime } }
 const TRAIL_STATE = {};
+
+// Posições do ciclo anterior — para detetar fechos externos (Bitget SL/TP)
+let PREV_POSITIONS = [];
 
 // ===== LOGGER =====
 function log(msg) {
@@ -31,9 +61,10 @@ function log(msg) {
 
 // ===== CONSENSO (6 bots + regime) =====
 function analyzeBots(candles) {
-  const closes = Array.isArray(candles) && typeof candles[0] === 'object'
-    ? candles.map(c => parseFloat(c[4] || c.c || 0)).filter(Boolean)
-    : candles;
+  // Candles chegam normalizados como {ts,o,h,l,c,v} do bitget.js
+  const closes = typeof candles[0] === 'number'
+    ? candles
+    : candles.map(c => Array.isArray(c) ? parseFloat(c[4]) : parseFloat(c.c || 0)).filter(Boolean);
 
   // Detectar regime de mercado
   const regime = STRAT.detectRegime(closes);
@@ -72,18 +103,33 @@ function analyzeBots(candles) {
 
 // ===== API HELPER =====
 async function callApi(base, body) {
-  const r = await fetch(base + '/api/bitget', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
-  });
-  return r.json();
+  try {
+    const r = await fetch(base + '/api/bitget', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    if (!r.ok) {
+      console.log('callApi HTTP error:', r.status, body.action);
+      return null;
+    }
+    return await r.json();
+  } catch(e) {
+    console.log('callApi network error:', e.message, body.action);
+    return null;
+  }
 }
 
 // ===== MAIN BOT =====
 module.exports = async function runBot() {
   try {
     const base = process.env.BASE_URL;
+
+    // Carregar TRAIL_STATE na primeira execução
+    if (!global._trailLoaded) {
+      await loadTrailState();
+      global._trailLoaded = true;
+    }
 
     // ── Settings ──────────────────────────────────────────────
     const settings = await callApi(base, { action: 'getSettings' });
@@ -108,8 +154,7 @@ module.exports = async function runBot() {
     console.log('POSITIONS:', JSON.stringify(positions));
 
     // ── Gerir posições existentes ─────────────────────────────
-    const MAX_TIME_MS  = 20 * 60 * 1000; // 20 minutos
-    const TRAIL_THRESH = 0.5;             // recuo de 50% do pico → sair
+    const MAX_TIME_MS = 20 * 60 * 1000; // fallback — exitBot gere os seus próprios limites
 
     for (const pos of positions) {
       const symbol   = pos.symbol;
@@ -206,6 +251,7 @@ module.exports = async function runBot() {
 
         // Limpar trailing state
         delete TRAIL_STATE[symbol];
+        persistTrailState();
 
         const trade = setTradePnL(symbol, pnl);
         if (trade?.bots) {
@@ -213,6 +259,38 @@ module.exports = async function runBot() {
         }
       }
     }
+
+    // ── Detetar fechos externos (Bitget SL/TP) ──────────────────
+    // Comparar com ciclo anterior para ver quais posições desapareceram
+    for (const prevPos of PREV_POSITIONS) {
+      const stillOpen = positions.find(p => p.symbol === prevPos.symbol && p.holdSide === prevPos.holdSide);
+      if (!stillOpen) {
+        // Esta posição foi fechada externamente (Bitget SL/TP ou manual)
+        const entry   = parseFloat(prevPos.openPriceAvg || 0);
+        const mark    = parseFloat(prevPos.markPrice || entry);
+        const isLong  = prevPos.holdSide === 'long';
+        const pnl     = entry > 0 ? ((isLong ? mark - entry : entry - mark) / entry * 100) : 0;
+
+        log(`📕 ${prevPos.symbol} fechado externamente (Bitget) PnL:~${pnl.toFixed(2)}%`);
+
+        // Atualizar brain com resultado estimado
+        const trade = setTradePnL(prevPos.symbol, pnl);
+        if (trade?.bots) {
+          for (const b of trade.bots) BRAIN.updateBot(b, pnl);
+        } else {
+          // Sem trade registado — atualizar brain com estimativa
+          // Usar bots genéricos para não enviesar
+          log(`⚠️ ${prevPos.symbol} sem trade registado — brain não atualizado`);
+        }
+
+        // Limpar TRAIL_STATE
+        delete TRAIL_STATE[prevPos.symbol];
+
+        await saveEquity(balance);
+      }
+    }
+    // Guardar posições para próximo ciclo
+    PREV_POSITIONS = positions.slice();
 
     // ── Procurar novos sinais ─────────────────────────────────
     // Máx 1 posição de cada vez — evita risco acumulado
@@ -234,9 +312,6 @@ module.exports = async function runBot() {
         log(`⏳ ${sym} em cooldown`);
         continue;
       }
-
-      // Verificar decisão antes de buscar candles (evita chamadas desnecessárias)
-      // Será verificado depois da análise — placeholder aqui
 
       log(`🔍 ${sym}`);
 
@@ -320,6 +395,7 @@ module.exports = async function runBot() {
       // Cooldown: não tentar este símbolo por 60s após abrir
       TRAIL_STATE[sym] = TRAIL_STATE[sym] || {};
       TRAIL_STATE[sym].lastOpen = Date.now();
+      persistTrailState();
       // Marcar se a posição ficou sem proteção na exchange
       if (data.warning) {
         TRAIL_STATE[sym].noProtection = true;
