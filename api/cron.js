@@ -113,11 +113,16 @@ module.exports = async function runBot(){
       return;
     }
 
-    const positions = await (await fetch(base+'/api/bitget',{
+    // 🔥 FIX AQUI
+    const posRes = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
+
+    console.log("POSITIONS RAW:", posRes);
+
+    const positions = posRes.data || posRes;
 
     for(const pos of positions){
 
@@ -196,7 +201,7 @@ module.exports = async function runBot(){
         continue;
       }
 
-      const minOrder = 5.5; // 🔥 buffer
+      const minOrder = 5.5;
       const maxRisk = 0.05;
 
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
@@ -211,7 +216,6 @@ module.exports = async function runBot(){
         orderValue = minOrder;
       }
 
-      // 🔥 FIX DEFINITIVO
       let qty = orderValue / price;
 
       qty = Math.ceil(qty * 10000) / 10000;
