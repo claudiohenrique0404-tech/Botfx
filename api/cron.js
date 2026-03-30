@@ -21,7 +21,10 @@ const MAX_DAILY_LOSS = -3;
 
 // ===== LOGGER =====
 function log(msg){
-  const t = new Date().toLocaleTimeString('pt-PT',{hour12:false});
+  const t = new Date().toLocaleTimeString('pt-PT',{
+    hour12:false,
+    timeZone:'Europe/Lisbon'
+  });
   const e = `[${t}] ${msg}`;
   console.log(e);
 
