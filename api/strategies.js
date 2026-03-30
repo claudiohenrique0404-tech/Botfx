@@ -16,7 +16,7 @@ function volatility(values){
   return Math.sqrt(variance);
 }
 
-// ===== TREND BOT (UPGRADED) =====
+// ===== TREND BOT =====
 function trendBot(closes){
 
   if(closes.length < 50) return null;
@@ -31,12 +31,11 @@ function trendBot(closes){
 
   const strength = Math.abs(ema9 - ema21) / price;
 
-  // filtro anti-ruído
-  if(strength < 0.0015) return null;
+  // 🔥 menos restritivo
+  if(strength < 0.001) return null;
 
   let confidence = Math.min(1, 0.7 + strength * 10);
 
-  // confirmação com EMA50 (tendência maior)
   if(ema9 > ema21 && ema21 > ema50){
     return { side:'BUY', confidence, bot:'trend' };
   }
@@ -48,7 +47,7 @@ function trendBot(closes){
   return null;
 }
 
-// ===== RSI BOT (COM CONTEXTO) =====
+// ===== RSI BOT =====
 function rsiBot(closes){
 
   if(closes.length < 20) return null;
@@ -64,7 +63,6 @@ function rsiBot(closes){
   const rs = gains/(losses || 1);
   const rsi = 100 - (100 / (1 + rs));
 
-  // usa RSI como reversão leve (não extrema)
   if(rsi < 35){
     return { side:'BUY', confidence:0.55, bot:'rsi' };
   }
@@ -76,7 +74,7 @@ function rsiBot(closes){
   return null;
 }
 
-// ===== MOMENTUM BOT (SUAVIZADO) =====
+// ===== MOMENTUM BOT =====
 function momentumBot(closes){
 
   if(closes.length < 20) return null;
@@ -89,25 +87,26 @@ function momentumBot(closes){
 
   const momentum = (shortAvg - longAvg) / longAvg;
 
-  if(momentum > 0.003){
+  // 🔥 menos restritivo
+  if(momentum > 0.002){
     return { side:'BUY', confidence:0.65, bot:'momentum' };
   }
 
-  if(momentum < -0.003){
+  if(momentum < -0.002){
     return { side:'SELL', confidence:0.65, bot:'momentum' };
   }
 
   return null;
 }
 
-// ===== FILTRO GLOBAL (ANTI MARKET DEAD) =====
+// ===== FILTRO GLOBAL =====
 function marketFilter(closes){
   if(closes.length < 20) return true;
 
   const vol = volatility(closes.slice(-20));
 
-  // mercado muito parado → ignora
-  if(vol < 0.0005) return false;
+  // 🔥 menos restritivo
+  if(vol < 0.0003) return false;
 
   return true;
 }
