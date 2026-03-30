@@ -1,7 +1,6 @@
 // ===== IMPORTS =====
 const STRAT = require('./strategies');
 const { saveTrade, saveEquity, setTradePnL } = require('./db');
-const { buildFeatures } = require('./features');
 const BRAIN = require('./brain');
 
 const fetch = global.fetch || require('node-fetch');
@@ -58,9 +57,8 @@ function analyzeBots(closes){
 
   log(`🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)}`);
 
-  // 🔥 melhor lógica (menos bloqueio)
-  if(buy > sell && buy > 0.55) return { side:'BUY', bots:used };
-  if(sell > buy && sell > 0.55) return { side:'SELL', bots:used };
+  if(buy > sell && buy > 0.55) return { side:'BUY', bots:used, buy, sell };
+  if(sell > buy && sell > 0.55) return { side:'SELL', bots:used, buy, sell };
 
   return null;
 }
@@ -104,7 +102,7 @@ module.exports = async function runBot(){
 
     log(`💰 ${balance.toFixed(2)} | Day: ${pnlDay.toFixed(2)}%`);
 
-    // ===== RISK CONTROLS =====
+    // ===== RISK =====
     if(pnlDay <= MAX_DAILY_LOSS){
       log('🛑 KILL SWITCH');
       return;
@@ -122,7 +120,7 @@ module.exports = async function runBot(){
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== FECHO DE POSIÇÕES =====
+    // ===== FECHO =====
     for(const pos of positions){
 
       const symbol = pos.symbol;
@@ -164,7 +162,7 @@ module.exports = async function runBot(){
       }
     }
 
-    // ===== NOVAS ENTRADAS =====
+    // ===== ENTRADAS =====
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
@@ -189,13 +187,11 @@ module.exports = async function runBot(){
       const closes = candles.map(c=>+c[4]);
       const price = closes.at(-1);
 
-      // ===== 🔥 NOVO FILTRO GLOBAL =====
       if(!STRAT.marketFilter(closes)){
         log('😴 mercado parado');
         continue;
       }
 
-      // ===== DECISÃO =====
       const decision = analyzeBots(closes);
 
       if(!decision){
@@ -203,11 +199,27 @@ module.exports = async function runBot(){
         continue;
       }
 
-      // ===== RISK =====
-      const qty = ((balance * 0.005)/price).toFixed(4);
+      // ===== 🔥 POSITION SIZING DINÂMICO =====
+      const minOrder = 5;
+      const maxRisk = 0.05;
 
-      log(`⚖️ qty:${qty}`);
+      const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
 
+      let strength = (confidence - 0.55) / (1 - 0.55);
+      if(strength < 0) strength = 0;
+      if(strength > 1) strength = 1;
+
+      let orderValue = balance * (0.01 + strength * (maxRisk - 0.01));
+
+      if(orderValue < minOrder){
+        orderValue = minOrder;
+      }
+
+      const qty = (orderValue / price).toFixed(4);
+
+      log(`📊 conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$`);
+
+      // ===== ORDER =====
       const r = await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
