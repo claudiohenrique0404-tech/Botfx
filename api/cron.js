@@ -113,7 +113,6 @@ module.exports = async function runBot(){
       return;
     }
 
-    // 🔥 FIX AQUI
     const posRes = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -127,9 +126,18 @@ module.exports = async function runBot(){
     for(const pos of positions){
 
       const symbol = pos.symbol;
-      const entry = parseFloat(pos.openPrice || pos.avgPrice || 0);
+
+      // 🔥 FIX ENTRY
+      const entry = parseFloat(
+        pos.openPriceAvg || pos.openPrice || pos.avgPrice || 0
+      );
+
       const current = parseFloat(pos.markPrice || pos.last || 0);
-      const size = parseFloat(pos.total || pos.size || 0);
+
+      // 🔥 FIX SIZE
+      const size = parseFloat(
+        pos.total || pos.available || pos.size || 0
+      );
 
       if(!entry || !current || !size) continue;
 
@@ -145,7 +153,8 @@ module.exports = async function runBot(){
           body:JSON.stringify({
             action:'order',
             symbol,
-            side:'SELL',
+            // 🔥 FIX SIDE
+            side: pos.holdSide === 'short' ? 'BUY' : 'SELL',
             quantity: Math.abs(size),
             close:true
           })
