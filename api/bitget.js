@@ -217,6 +217,21 @@ module.exports = async (req, res) => {
       return res.json(orderRes);
     }
 
+    // ===== PARTIAL CLOSE (fechar % de uma posição) =====
+    if (action === 'partialClose') {
+      const d = await bg('POST', '/api/v2/mix/order/place-order', {
+        symbol:      p.symbol,
+        productType: 'USDT-FUTURES',
+        marginCoin:  'USDT',
+        side:        p.holdSide === 'long' ? 'sell' : 'buy',
+        tradeSide:   'close',
+        orderType:   'market',
+        size:        String(Math.abs(parseFloat(p.quantity))),
+      });
+      console.log(`💰 PARTIAL CLOSE ${p.symbol} qty:${p.quantity}`);
+      return res.json(d);
+    }
+
     // ===== GET PLAN ORDERS =====
     if (action === 'getPlanOrders') {
       const d = await bg('GET', `/api/v2/mix/order/orders-plan-pending?symbol=${p.symbol}&productType=USDT-FUTURES&planType=loss_plan`);
