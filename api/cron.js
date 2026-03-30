@@ -135,6 +135,25 @@ module.exports = async function runBot() {
         TRAIL_STATE[symbol].maxPnl = pnl;
       }
 
+      // Partial TP: fechar 50% da posição quando pnl >= 0.8%
+      if (pnl >= 0.8 && !TRAIL_STATE[symbol].partialDone) {
+        TRAIL_STATE[symbol].partialDone = true;
+        const halfSize = (parseFloat(pos.total || 0) / 2).toFixed(4);
+        try {
+          await callApi(base, {
+            action:   'partialClose',
+            symbol,
+            holdSide,
+            quantity: halfSize,
+          });
+          log(`💰 PARTIAL TP ${symbol} 50% fechado @ +${pnl.toFixed(2)}%`);
+        } catch(e) {
+          log(`⚠️ Partial TP ${symbol} falhou: ${e.message}`);
+          TRAIL_STATE[symbol].partialDone = false; // retry no próximo ciclo
+        }
+        await new Promise(r => setTimeout(r, 300));
+      }
+
       // Breakeven: se passou 0.5% de lucro, atualizar SL para entry na Bitget
       if (pnl >= 0.5 && !TRAIL_STATE[symbol].beSet) {
         TRAIL_STATE[symbol].beSet = true;
@@ -247,11 +266,21 @@ module.exports = async function runBot() {
         }
       }
 
-      // ── Dimensionamento ───────────────────────────────────────
+      // ── Dimensionamento dinâmico por regime ──────────────────
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
       const strength   = Math.max(0, Math.min(1, (confidence - 0.55) / 0.45));
-      let orderValue   = balance * (0.01 + strength * 0.03); // 1%-4% da banca
+      const regime     = decision.regime || 'RANGE';
+
+      // Regime ajusta o multiplicador de size
+      const regimeMult = regime === 'TREND'    ? 1.3   // tendência → arriscar mais
+                       : regime === 'VOLATILE' ? 0.5   // volátil → arriscar menos
+                       :                        1.0;   // lateral → normal
+
+      let orderValue = balance * (0.01 + strength * 0.03) * regimeMult;
       if (orderValue < 15) orderValue = 15;
+      if (orderValue > balance * 0.08) orderValue = balance * 0.08; // cap 8% da banca
+
+      log(`📐 Size: $${orderValue.toFixed(2)} (regime:${regime} mult:${regimeMult}x)`);
 
       let qty = Math.ceil((orderValue / price) * 10000) / 10000;
       if (qty * price < 15) qty = Math.ceil((15 / price) * 10000) / 10000;
