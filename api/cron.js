@@ -120,6 +120,12 @@ module.exports = async function runBot() {
     }
 
     // ── Procurar novos sinais ─────────────────────────────────
+    // Máx 1 posição de cada vez — evita risco acumulado
+    if (positions.length > 0) {
+      log('⏸ posição já aberta — aguardar');
+      return;
+    }
+
     const openSymbols = positions.map(p => p.symbol);
 
     for (const sym of settings.symbols) {
@@ -144,7 +150,7 @@ module.exports = async function runBot() {
       // ── Dimensionamento ───────────────────────────────────────
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
       const strength   = Math.max(0, Math.min(1, (confidence - 0.55) / 0.45));
-      let orderValue   = balance * (0.015 + strength * 0.05);
+      let orderValue   = balance * (0.01 + strength * 0.03); // 1%-4% da banca
       if (orderValue < 15) orderValue = 15;
 
       let qty = Math.ceil((orderValue / price) * 10000) / 10000;
