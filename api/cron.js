@@ -70,7 +70,6 @@ module.exports = async function runBot(){
 
     const base = process.env.BASE_URL;
 
-    // ===== SETTINGS =====
     const settings = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -82,7 +81,6 @@ module.exports = async function runBot(){
       return;
     }
 
-    // ===== BALANCE =====
     const balanceData = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -102,7 +100,6 @@ module.exports = async function runBot(){
 
     log(`💰 ${balance.toFixed(2)} | Day: ${pnlDay.toFixed(2)}%`);
 
-    // ===== RISK =====
     if(pnlDay <= MAX_DAILY_LOSS){
       log('🛑 KILL SWITCH');
       return;
@@ -113,14 +110,12 @@ module.exports = async function runBot(){
       return;
     }
 
-    // ===== POSITIONS =====
     const positions = await (await fetch(base+'/api/bitget',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'positions'})
     })).json();
 
-    // ===== FECHO =====
     for(const pos of positions){
 
       const symbol = pos.symbol;
@@ -162,7 +157,6 @@ module.exports = async function runBot(){
       }
     }
 
-    // ===== ENTRADAS =====
     for(const sym of settings.symbols){
 
       if(positions.find(p=>p.symbol===sym)) continue;
@@ -199,7 +193,6 @@ module.exports = async function runBot(){
         continue;
       }
 
-      // ===== 🔥 POSITION SIZING DINÂMICO =====
       const minOrder = 5;
       const maxRisk = 0.05;
 
@@ -215,11 +208,20 @@ module.exports = async function runBot(){
         orderValue = minOrder;
       }
 
-      const qty = (orderValue / price).toFixed(4);
+      // 🔥 FIX MIN ORDER
+      let qty = orderValue / price;
 
-      log(`📊 conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$`);
+      qty = Math.ceil(qty * 1000) / 1000;
 
-      // ===== ORDER =====
+      if(qty * price < 5){
+        qty = 5 / price;
+        qty = Math.ceil(qty * 1000) / 1000;
+      }
+
+      qty = qty.toFixed(3);
+
+      log(`📊 conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$ qty:${qty}`);
+
       const r = await fetch(base+'/api/bitget',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
