@@ -54,7 +54,7 @@ function trendBot(closes) {
   const price = closes.at(-1);
   const strength = Math.abs(e9 - e21) / price;
 
-  if (strength < 0.0025) return null; // ignora micro-tendências irrelevantes
+  if (strength < 0.0035) return null; // só tendências com força real
 
   const confidence = Math.min(1, 0.65 + strength * 12);
 
@@ -111,7 +111,7 @@ function breakoutBot(candles) {
     const vols   = candles.slice(-20).map(c => parseFloat(c[5] || c.v || 0));
     const avgVol = vols.slice(0, -1).reduce((a, b) => a + b, 0) / (vols.length - 1);
     const lastVol = vols.at(-1);
-    volConfirm = avgVol > 0 ? lastVol >= avgVol * 1.2 : true; // 20% acima da média
+    volConfirm = avgVol > 0 ? lastVol >= avgVol * 1.5 : true; // 50% acima — evita fake breakouts
   }
 
   if (!volConfirm) return null; // fake breakout sem volume — ignorar
@@ -202,7 +202,7 @@ function detectRegime(closes) {
   const vol  = stddev(slice) / mean;
 
   // Alta volatilidade → VOLATILE (cuidado)
-  if (vol > 0.015) return 'VOLATILE';
+  if (vol > 0.008) return 'VOLATILE'; // detetar volatilidade cedo
 
   // Tendência forte → TREND
   if (trendStrength > 0.005 && (
