@@ -57,6 +57,12 @@ async function persistStats() {
 // ── API pública (idêntica ao original) ───────────────────
 function updateBot(bot, pnl) {
   if (!BOT_STATS[bot]) return;
+
+  // Decay: o passado pesa menos com o tempo — foca nos últimos resultados
+  BOT_STATS[bot].wins     *= 0.99;
+  BOT_STATS[bot].losses   *= 0.99;
+  BOT_STATS[bot].totalPnl *= 0.99;
+
   if (pnl > 0) BOT_STATS[bot].wins++;
   else          BOT_STATS[bot].losses++;
   BOT_STATS[bot].totalPnl = (BOT_STATS[bot].totalPnl || 0) + pnl;
