@@ -96,7 +96,19 @@ module.exports = async (req, res) => {
         console.error('CANDLES ERROR:', p.symbol, d.msg);
         return res.json([]);
       }
-      return res.json(d.data || []);
+      // Bitget history-candles devolve newest-first — inverter para oldest-first
+      // Todos os indicadores esperam [oldest ... newest] com .at(-1) = current
+      // Normalizar para objetos {ts,o,h,l,c,v} para compatibilidade total
+      const raw = (d.data || []).reverse();
+      const normalized = raw.map(c => ({
+        ts: parseFloat(c[0]),
+        o:  parseFloat(c[1]),
+        h:  parseFloat(c[2]),
+        l:  parseFloat(c[3]),
+        c:  parseFloat(c[4]),
+        v:  parseFloat(c[5]),
+      }));
+      return res.json(normalized);
     }
 
     // ===== POSITIONS =====
