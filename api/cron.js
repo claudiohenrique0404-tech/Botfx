@@ -16,6 +16,10 @@ let START_BALANCE = null;
 const MAX_TRADES_DAY = 10;
 const MAX_DAILY_LOSS = -3; // %
 
+// Trailing state por símbolo — persiste entre ciclos de 5s
+// { symbol: { maxPnl, openTime } }
+const TRAIL_STATE = {};
+
 // ===== LOGGER =====
 function log(msg) {
   const t = new Date().toLocaleTimeString('pt-PT', { hour12: false, timeZone: 'Europe/Lisbon' });
@@ -100,26 +104,56 @@ module.exports = async function runBot() {
     console.log('POSITIONS:', JSON.stringify(positions));
 
     // ── Gerir posições existentes ─────────────────────────────
+    const MAX_TIME_MS  = 20 * 60 * 1000; // 20 minutos
+    const TRAIL_THRESH = 0.5;             // recuo de 50% do pico → sair
+
     for (const pos of positions) {
       const symbol   = pos.symbol;
-      const holdSide = pos.holdSide; // 'long' ou 'short' da Bitget
+      const holdSide = pos.holdSide;
       const entry    = parseFloat(pos.openPriceAvg || pos.openPrice || 0);
       const current  = parseFloat(pos.markPrice || pos.last || 0);
       const size     = parseFloat(pos.total || 0);
+      const openTime = parseInt(pos.cTime || Date.now());
 
       if (!entry || !current || !size || !holdSide) continue;
 
-      // PnL correto para long e short
       const pnl = holdSide === 'long'
         ? ((current - entry) / entry) * 100
         : ((entry - current) / entry) * 100;
 
-      log(`📊 ${symbol} ${holdSide} PnL: ${pnl.toFixed(2)}%`);
+      // Inicializar trailing state
+      if (!TRAIL_STATE[symbol]) {
+        TRAIL_STATE[symbol] = { maxPnl: pnl, openTime: openTime || Date.now() };
+      }
 
-      // Fechar se atingiu TP ou SL (fallback — Bitget já tem as ordens)
-      if (pnl > 1.6 || pnl < -0.8) {
+      // Atualizar pico de PnL
+      if (pnl > TRAIL_STATE[symbol].maxPnl) {
+        TRAIL_STATE[symbol].maxPnl = pnl;
+      }
+
+      const maxPnl   = TRAIL_STATE[symbol].maxPnl;
+      const timeOpen = Date.now() - (TRAIL_STATE[symbol].openTime || Date.now());
+      const exitReason = STRAT.exitBot(pnl, timeOpen, maxPnl);
+
+      log(`📊 ${symbol} ${holdSide} PnL:${pnl.toFixed(2)}% max:${maxPnl.toFixed(2)}% t:${Math.round(timeOpen/60000)}min`);
+
+      let shouldClose  = false;
+      let closeReason  = '';
+
+      // 1. TP/SL hard (Bitget fallback)
+      if (pnl >= 1.6)  { shouldClose = true; closeReason = `TP +${pnl.toFixed(2)}%`; }
+      else if (pnl <= -0.8) { shouldClose = true; closeReason = `SL ${pnl.toFixed(2)}%`; }
+      // 2. Exit bot (trailing + time stop)
+      else if (exitReason === 'TRAIL') { shouldClose = true; closeReason = `TRAIL (pico:${maxPnl.toFixed(2)}% → ${pnl.toFixed(2)}%)`; }
+      else if (exitReason === 'TIME')  { shouldClose = true; closeReason = `TIME STOP ${Math.round(timeOpen/60000)}min +${pnl.toFixed(2)}%`; }
+      else if (exitReason === 'TIME_WEAK') { shouldClose = true; closeReason = `TRADE FRACA ${Math.round(timeOpen/60000)}min ${pnl.toFixed(2)}%`; }
+
+      if (shouldClose) {
         await callApi(base, { action: 'close', symbol, holdSide });
-        log(pnl > 0 ? `✅ TP ${symbol} +${pnl.toFixed(2)}%` : `🛑 SL ${symbol} ${pnl.toFixed(2)}%`);
+        log(pnl > 0 ? `✅ ${closeReason} ${symbol}` : `🛑 ${closeReason} ${symbol}`);
+
+        // Limpar trailing state
+        delete TRAIL_STATE[symbol];
 
         const trade = setTradePnL(symbol, pnl);
         if (trade?.bots) {
@@ -130,8 +164,9 @@ module.exports = async function runBot() {
 
     // ── Procurar novos sinais ─────────────────────────────────
     // Máx 1 posição de cada vez — evita risco acumulado
-    if (positions.length > 0) {
-      log('⏸ posição já aberta — aguardar');
+    const MAX_POSITIONS = 2;
+    if (positions.length >= MAX_POSITIONS) {
+      log(`⏸ ${positions.length}/${MAX_POSITIONS} posições ativas — aguardar`);
       return;
     }
 
