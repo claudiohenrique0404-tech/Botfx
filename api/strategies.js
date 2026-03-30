@@ -18,26 +18,7 @@ function rsiCalc(closes, period = 14) {
   return 100 - (100 / (1 + g / (l || 0.001)));
 }
 
-function atr(closes, highs, lows, period = 14) {
-  if (!highs || !lows) {
-    // fallback sem H/L — usa só closes
-    const s = closes.slice(-period);
-    let sum = 0;
-    for (let i = 1; i < s.length; i++) sum += Math.abs(s[i] - s[i - 1]);
-    return sum / (s.length - 1 || 1);
-  }
-  const s = closes.slice(-period);
-  let sum = 0;
-  for (let i = 1; i < s.length; i++) {
-    const tr = Math.max(
-      highs[i] - lows[i],
-      Math.abs(highs[i] - closes[i - 1]),
-      Math.abs(lows[i]  - closes[i - 1])
-    );
-    sum += tr;
-  }
-  return sum / (s.length - 1 || 1);
-}
+
 
 function stddev(values) {
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
@@ -90,10 +71,10 @@ function momentumBot(closes) {
 
 // ═══ 4. BREAKOUT BOT (suporte/resistência + confirmação volume) ════
 function breakoutBot(candles) {
-  // Aceita tanto candles completos como closes simples
-  const closes = Array.isArray(candles) && typeof candles[0] === 'object'
-    ? candles.map(c => parseFloat(c[4] || c.c || 0))
-    : candles;
+  // Aceita objetos {c}, arrays [ts,o,h,l,c,v] ou closes simples
+  const closes = typeof candles[0] === 'number'
+    ? candles
+    : candles.map(c => Array.isArray(c) ? parseFloat(c[4]) : parseFloat(c.c || 0));
 
   if (closes.length < 30) return null;
 
@@ -105,13 +86,15 @@ function breakoutBot(candles) {
 
   if (range === 0) return null;
 
-  // Confirmação de volume — última vela tem de ter volume acima da média
+  // Confirmação de volume — suporta objetos {v} e arrays [ts,o,h,l,c,v]
   let volConfirm = true;
-  if (Array.isArray(candles) && typeof candles[0] === 'object') {
-    const vols   = candles.slice(-20).map(c => parseFloat(c[5] || c.v || 0));
-    const avgVol = vols.slice(0, -1).reduce((a, b) => a + b, 0) / (vols.length - 1);
+  if (candles && typeof candles[0] !== 'number') {
+    const getV = c => typeof c === 'object' && !Array.isArray(c)
+      ? (c.v || 0) : parseFloat(c[5] || 0);
+    const vols    = candles.slice(-20).map(getV);
+    const avgVol  = vols.slice(0, -1).reduce((a, b) => a + b, 0) / (vols.length - 1 || 1);
     const lastVol = vols.at(-1);
-    volConfirm = avgVol > 0 ? lastVol >= avgVol * 1.5 : true; // 50% acima — evita fake breakouts
+    volConfirm = avgVol > 0 ? lastVol >= avgVol * 1.5 : true;
   }
 
   if (!volConfirm) return null; // fake breakout sem volume — ignorar
@@ -130,28 +113,34 @@ function breakoutBot(candles) {
 }
 
 // ═══ 5. VOLUME BOT ══════════════════════════════════════════
-// Recebe candles completos [{o,h,l,c,v}] em vez de só closes
+// Suporta candles como objetos {o,h,l,c,v} OU arrays [ts,o,h,l,c,v]
 function volumeBot(candles) {
   if (!candles || candles.length < 20) return null;
 
-  const recent  = candles.slice(-20);
-  const avgVol  = recent.slice(0, -1).reduce((a, c) => a + (c.v || 0), 0) / 19;
-  const lastVol = candles.at(-1).v || 0;
-  const volRatio = avgVol > 0 ? lastVol / avgVol : 1;
+  // Normalizar: extrair volume independentemente do formato
+  const getV = c => typeof c === 'object' && !Array.isArray(c)
+    ? (c.v || 0)
+    : parseFloat(c[5] || 0);
+  const getC = c => typeof c === 'object' && !Array.isArray(c)
+    ? c.c
+    : parseFloat(c[4] || 0);
+  const getO = c => typeof c === 'object' && !Array.isArray(c)
+    ? c.o
+    : parseFloat(c[1] || 0);
 
-  // Volume tem de ser pelo menos 1.5x a média para ser relevante
+  const recent   = candles.slice(-20);
+  const vols     = recent.map(getV);
+  const avgVol   = vols.slice(0, -1).reduce((a, b) => a + b, 0) / (vols.length - 1 || 1);
+  const lastVol  = vols.at(-1);
+  const volRatio = avgVol > 0 ? lastVol / avgVol : 0;
+
   if (volRatio < 1.5) return null;
 
-  const last  = candles.at(-1);
-  const isBull = (last.c || last[4]) > (last.o || last[1]);
+  const last   = candles.at(-1);
+  const isBull = getC(last) >= getO(last);
 
-  // Volume alto + vela direcional
   const confidence = Math.min(0.85, 0.6 + (volRatio - 1.5) * 0.1);
-  return {
-    side: isBull ? 'BUY' : 'SELL',
-    confidence,
-    bot: 'volume'
-  };
+  return { side: isBull ? 'BUY' : 'SELL', confidence, bot: 'volume' };
 }
 
 // ═══ 6. VOLATILITY BOT (Bollinger Bands) ════════════════════
