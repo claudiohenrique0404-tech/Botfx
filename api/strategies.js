@@ -207,8 +207,10 @@ function contextFilter(closesHigher) {
 function exitBot(pnl, timeOpen, maxPnl) {
   const MAX_TIME_MS = 20 * 60 * 1000; // 20 min
 
-  // Trailing: se atingiu 0.5%+ e recuou 50% do pico → sair
-  if (maxPnl >= 0.7 && pnl < maxPnl * 0.6) return 'TRAIL';
+  // Trailing agressivo acima de 1% — protege lucros grandes
+  if (maxPnl >= 1.0 && pnl < maxPnl * 0.7) return 'TRAIL'; // recuo de 30%
+  // Trailing normal entre 0.7% e 1%
+  if (maxPnl >= 0.7 && pnl < maxPnl * 0.6) return 'TRAIL'; // recuo de 40%
 
   // Trade fraca: 15min e ainda abaixo de 0.3% → libertar capital
   if (timeOpen > 15 * 60 * 1000 && pnl < 0.3 && pnl > -0.3) return 'TIME_WEAK';
