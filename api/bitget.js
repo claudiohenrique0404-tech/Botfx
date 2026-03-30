@@ -185,6 +185,8 @@ module.exports = async (req, res) => {
           ...tpslBase, planType: 'loss_plan', triggerPrice: String(slPrice),
         }).catch(e => ({ code: 'ERR', msg: e.message }));
 
+        await new Promise(r => setTimeout(r, 200));
+
         const tpRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
           ...tpslBase, planType: 'profit_plan', triggerPrice: String(tpPrice),
         }).catch(e => ({ code: 'ERR', msg: e.message }));
