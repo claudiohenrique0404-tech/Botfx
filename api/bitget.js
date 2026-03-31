@@ -195,7 +195,8 @@ module.exports = async (req, res) => {
         const tpslBase = {
           symbol: sym, productType: pt, marginCoin: 'USDT',
           holdSide, triggerType: 'mark_price',
-          executePrice: '0', size: String(Math.abs(p.quantity)),
+          executePrice: '0',
+          // sem size — Bitget aplica ao total da posição (evita rejeição por arredondamento)
         };
 
         const slRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
