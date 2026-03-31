@@ -1,40 +1,54 @@
 const runBot = require('./api/cron');
-const http = require('http');
+const http   = require('http');
 
-function sleep(ms){
+function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// servidor HTTP (anti-sleep)
+// ── Capturar erros não tratados — evita mortes silenciosas ──
+process.on('uncaughtException', err => {
+  console.error('💥 UNCAUGHT EXCEPTION:', err.message, err.stack);
+  // Não sair — o loop continua
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 UNHANDLED REJECTION:', reason);
+  // Não sair — o loop continua
+});
+
+// ── Servidor HTTP anti-sleep ────────────────────────────────
 http.createServer((req, res) => {
-  res.writeHead(200, {'Content-Type': 'text/plain'});
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('BOT RUNNING');
 }).listen(process.env.PORT || 3000, () => {
-  console.log("🌐 HTTP server running");
+  console.log('🌐 HTTP server running');
 });
+
+// ── Heartbeat — confirma que o processo está vivo ───────────
+setInterval(() => {
+  console.log(`❤️ alive ${new Date().toLocaleTimeString('pt-PT', { timeZone: 'Europe/Lisbon' })}`);
+}, 60000);
 
 let running = false;
 
-async function start(){
-  console.log("🚀 BOT STARTED");
+async function start() {
+  console.log('🚀 BOT STARTED');
 
-  while(true){
-    if(running){
-      console.log("⏳ skipping (still running)");
+  while (true) {
+    if (running) {
       await sleep(1000);
       continue;
     }
 
     running = true;
 
-    try{
+    try {
       await runBot();
-    }catch(e){
-      console.log("ERROR:", e.message);
+    } catch (e) {
+      console.error('🔥 LOOP ERROR:', e.message);
     }
 
     running = false;
-
     await sleep(5000);
   }
 }
