@@ -173,9 +173,15 @@ module.exports = async function runBot() {
         ? ((current - entry) / entry) * 100
         : ((entry - current) / entry) * 100;
 
-      // Inicializar trailing state
+      // Inicializar trailing state — garantir maxPnl sempre definido
       if (!TRAIL_STATE[symbol]) {
-        TRAIL_STATE[symbol] = { maxPnl: pnl, openTime: openTime || Date.now() };
+        TRAIL_STATE[symbol] = {};
+      }
+      if (TRAIL_STATE[symbol].maxPnl === undefined) {
+        TRAIL_STATE[symbol].maxPnl = pnl;
+      }
+      if (!TRAIL_STATE[symbol].openTime) {
+        TRAIL_STATE[symbol].openTime = openTime || Date.now();
       }
 
       // Atualizar pico de PnL
@@ -234,7 +240,7 @@ module.exports = async function runBot() {
       const timeOpen = Date.now() - (TRAIL_STATE[symbol].openTime || Date.now());
       const exitReason = STRAT.exitBot(pnl, timeOpen, maxPnl);
 
-      log(`📊 ${symbol} ${holdSide} PnL:${pnl.toFixed(2)}% max:${maxPnl.toFixed(2)}% t:${Math.round(timeOpen/60000)}min`);
+      log(`📊 ${symbol} ${holdSide} PnL:${(pnl??0).toFixed(2)}% max:${(maxPnl??0).toFixed(2)}% t:${Math.round(timeOpen/60000)}min`);
 
       let shouldClose  = false;
       let closeReason  = '';
@@ -375,8 +381,10 @@ module.exports = async function runBot() {
                        :                        1.0;   // lateral → normal
 
       let orderValue = balance * (0.01 + strength * 0.03) * regimeMult;
-      if (orderValue < 15) orderValue = 15;
-      if (orderValue > balance * 0.08) orderValue = balance * 0.08; // cap 8% da banca
+      if (orderValue < 15) orderValue = 15; // mínimo absoluto $15
+      // Cap de 8% só aplica se cap >= $15 (evita cap < mínimo)
+      const capValue = balance * 0.08;
+      if (capValue >= 15 && orderValue > capValue) orderValue = capValue;
 
       log(`📐 Size: $${orderValue.toFixed(2)} (regime:${regime} mult:${regimeMult}x)`);
 
