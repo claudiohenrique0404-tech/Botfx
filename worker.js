@@ -27,7 +27,7 @@ http.createServer((req, res) => {
 // ── Heartbeat — confirma que o processo está vivo ───────────
 setInterval(() => {
   console.log(`❤️ alive ${new Date().toLocaleTimeString('pt-PT', { timeZone: 'Europe/Lisbon' })}`);
-}, 60000);
+}, 15000); // a cada 15s — detetar freezes mais rápido
 
 let running = false;
 
