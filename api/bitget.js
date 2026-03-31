@@ -56,13 +56,26 @@ module.exports = async (req, res) => {
     };
 
     const bg = async (method, path, body) => {
-      const bs = body ? JSON.stringify(body) : undefined;
-      const r  = await fetch(BASE + path, {
-        method,
-        headers: hdrs(method, path, bs || ''),
-        body: bs,
-      });
-      return r.json();
+      const bs  = body ? JSON.stringify(body) : undefined;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 9000);
+      try {
+        const r = await fetch(BASE + path, {
+          method,
+          headers: hdrs(method, path, bs || ''),
+          body: bs,
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        return await Promise.race([
+          r.json(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('bg json timeout')), 5000)),
+        ]);
+      } catch(e) {
+        clearTimeout(timer);
+        console.error(`bg error [${method} ${path}]:`, e.message);
+        return { code: 'NET_ERR', msg: e.message };
+      }
     };
 
     // ===== SETTINGS =====
@@ -196,7 +209,8 @@ module.exports = async (req, res) => {
           symbol: sym, productType: pt, marginCoin: 'USDT',
           holdSide, triggerType: 'mark_price',
           executePrice: '0',
-          // sem size — Bitget aplica ao total da posição (evita rejeição por arredondamento)
+          // Sem size → Bitget aplica SL/TP ao total da posição
+          // Evita rejeição por mismatch entre qty calculado e qty real (arredondamento Bitget)
         };
 
         const slRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
