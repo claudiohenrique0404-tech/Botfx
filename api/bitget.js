@@ -103,8 +103,21 @@ module.exports = async (req, res) => {
     if (action === 'candles') {
       const gran = p.tf === '1m' ? '1m' : (p.tf || '1m');
       const url  = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=usdt-futures&granularity=${gran}&limit=100`;
-      const r    = await fetch(url);
-      const d    = await r.json();
+      const ctrl  = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 9000);
+      let d;
+      try {
+        const r = await fetch(url, { signal: ctrl.signal });
+        d = await Promise.race([
+          r.json(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('candles json timeout')), 5000)),
+        ]);
+      } catch(e) {
+        console.error(`CANDLES FAIL ${p.symbol}:`, e.message);
+        return res.json([]);
+      } finally {
+        clearTimeout(timer);
+      }
       if (d.code && d.code !== '00000') {
         console.error('CANDLES ERROR:', p.symbol, d.msg);
         return res.json([]);
