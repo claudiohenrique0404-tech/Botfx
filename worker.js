@@ -43,7 +43,11 @@ async function start() {
     running = true;
 
     try {
-      await runBot();
+      // Timeout global: se runBot() não terminar em 25s, aborta o ciclo
+      await Promise.race([
+        runBot(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('runBot timeout 25s')), 25000)),
+      ]);
     } catch (e) {
       console.error('🔥 LOOP ERROR:', e.message);
     }
