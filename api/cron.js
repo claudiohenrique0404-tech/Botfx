@@ -124,7 +124,11 @@ async function callApi(base, body) {
       console.log('callApi HTTP error:', r.status, body.action);
       return null;
     }
-    return await r.json();
+    // Timeout separado para .json() — body pode bloquear mesmo com AbortController
+    return await Promise.race([
+      r.json(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('json timeout')), 5000)),
+    ]);
   } catch(e) {
     clearTimeout(timer);
     const msg = e.name === 'AbortError' ? 'timeout 8s' : e.message;
@@ -344,10 +348,12 @@ module.exports = async function runBot() {
 
       log(`🔍 ${sym}`);
 
-      const [candles1m, candles5m] = await Promise.all([
+      const [r1m, r5m] = await Promise.allSettled([
         callApi(base, { action: 'candles', symbol: sym, tf: '1m' }),
         callApi(base, { action: 'candles', symbol: sym, tf: '5m' }),
       ]);
+      const candles1m = r1m.status === 'fulfilled' ? r1m.value : null;
+      const candles5m = r5m.status === 'fulfilled' ? r5m.value : null;
 
       if (!candles1m || !candles1m.length) { log('⚠️ sem candles'); continue; }
 
