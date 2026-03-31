@@ -16,8 +16,25 @@ process.on('unhandledRejection', (reason, promise) => {
   // Não sair — o loop continua
 });
 
-// ── Servidor HTTP anti-sleep ────────────────────────────────
-http.createServer((req, res) => {
+// ── Servidor HTTP com routing para /api/bitget ─────────────
+const bitgetHandler = require('./api/bitget');
+
+http.createServer(async (req, res) => {
+  if (req.method === 'POST' && req.url === '/api/bitget') {
+    // Recolher body
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        req.body = JSON.parse(body);
+      } catch {
+        req.body = {};
+      }
+      await bitgetHandler(req, res);
+    });
+    return;
+  }
+  // Anti-sleep: responde a qualquer outro pedido
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('BOT RUNNING');
 }).listen(process.env.PORT || 3000, () => {
