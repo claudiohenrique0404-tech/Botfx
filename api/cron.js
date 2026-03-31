@@ -60,14 +60,19 @@ function log(msg) {
 }
 
 // ===== CONSENSO (6 bots + regime) =====
-function analyzeBots(candles) {
+function analyzeBots(candles, candles5m) {
   // Candles chegam normalizados como {ts,o,h,l,c,v} do bitget.js
   const closes = typeof candles[0] === 'number'
     ? candles
     : candles.map(c => Array.isArray(c) ? parseFloat(c[4]) : parseFloat(c.c || 0)).filter(Boolean);
 
-  // Detectar regime de mercado
-  const regime = STRAT.detectRegime(closes);
+  // Regime detectado com 5m (50 candles = 4h) — tendências lentas visíveis
+  // Fallback para 1m se 5m não disponível
+  const closes5mForRegime = candles5m && candles5m.length >= 20
+    ? (typeof candles5m[0] === 'number' ? candles5m
+       : candles5m.map(c => Array.isArray(c) ? parseFloat(c[4]) : parseFloat(c.c || 0)).filter(Boolean))
+    : closes;
+  const regime = STRAT.detectRegime(closes5mForRegime);
 
   const rawSignals = {
     trend:      STRAT.trendBot(closes),
@@ -95,9 +100,8 @@ function analyzeBots(candles) {
 
   log(`🌍 ${regime} | 🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
 
-  // Mínimo 2 bots OU 1 bot com score muito alto (>0.7)
-  const topScore = Math.max(buy, sell);
-  if (used.length < 2 && topScore < 0.7) return null;
+  // Mínimo 2 bots sempre — 1 sinal isolado é ruído independentemente do score
+  if (used.length < 2) return null;
 
   // Threshold combinado: score mínimo E margem sobre o adversário
   const diff = Math.abs(buy - sell);
@@ -365,8 +369,8 @@ module.exports = async function runBot() {
 
       if (!STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
 
-      // Decisão no 1m
-      const decision = analyzeBots(candles1m);
+      // Decisão no 1m — mas regime detectado com 5m (janela maior = tendência real)
+      const decision = analyzeBots(candles1m, candles5m);
       if (!decision) { log('❌ sem consenso'); continue; }
 
       // Correlação: evitar 2 longs ou 2 shorts ao mesmo tempo
@@ -382,6 +386,27 @@ module.exports = async function runBot() {
         const context5m = STRAT.contextFilter(closes5m);
         if (context5m !== 'NEUTRAL' && context5m !== decision.side) {
           log(`🚫 ${sym} contra-tendência (5m:${context5m} 1m:${decision.side})`);
+          continue;
+        }
+
+        // Filtro EMA50: posição do preço E inclinação da EMA
+        const ema50now  = STRAT.ema50(closes5m);
+        const ema50prev = STRAT.ema50(closes5m.slice(0, -1));
+        const ema50prev2 = STRAT.ema50(closes5m.slice(0, -2));
+        const slope1 = (ema50now  - ema50prev)  / ema50prev;
+        const slope2 = (ema50prev - ema50prev2) / ema50prev2;
+
+        // Consistência: slope atual forte E slope anterior na mesma direção
+        const emaUpStrong   = slope1 >  0.0002 && slope2 > 0;
+        const emaDownStrong = slope1 < -0.0002 && slope2 < 0;
+        const slope = slope1;
+
+        if (decision.side === 'BUY' && (price < ema50now || !emaUpStrong)) {
+          log(`🚫 ${sym} BUY bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
+          continue;
+        }
+        if (decision.side === 'SELL' && (price > ema50now || !emaDownStrong)) {
+          log(`🚫 ${sym} SELL bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
           continue;
         }
       }
