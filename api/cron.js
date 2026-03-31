@@ -160,9 +160,11 @@ module.exports = async function runBot() {
       global._trailLoaded = true;
     }
 
-    // ── Settings ──────────────────────────────────────────────
-    const settings = await callApi(base, { action: 'getSettings' });
-    if (!settings || !settings.active) { log('⏸ BOT OFF'); return; }
+    // ── Settings — acesso directo ao estado global (mesmo processo) ──
+    const settings = global.BOT_SETTINGS || { active: true, lev: 3, symbols: [
+      'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT'
+    ]};
+    if (!settings.active) { log('⏸ BOT OFF'); return; }
 
     // ── Balance ───────────────────────────────────────────────
     const balanceData = await callApi(base, { action: 'balance' });
