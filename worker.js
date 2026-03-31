@@ -43,16 +43,16 @@ async function start() {
     running = true;
 
     try {
-      // Timeout global: se runBot() não terminar em 25s, aborta o ciclo
+      // Timeout global: se runBot() não terminar em 45s, aborta o ciclo
       await Promise.race([
         runBot(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('runBot timeout 25s')), 25000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('runBot timeout 45s')), 45000)),
       ]);
     } catch (e) {
       console.error('🔥 LOOP ERROR:', e.message);
+    } finally {
+      running = false; // garantido mesmo em casos extremos
     }
-
-    running = false;
     await sleep(5000);
   }
 }
