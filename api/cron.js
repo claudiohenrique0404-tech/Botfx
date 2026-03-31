@@ -95,8 +95,11 @@ function analyzeBots(candles) {
 
   log(`🌍 ${regime} | 🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
 
+  // Mínimo 2 bots OU 1 bot com score muito alto (>0.7)
+  const topScore = Math.max(buy, sell);
+  if (used.length < 2 && topScore < 0.7) return null;
+
   // Threshold combinado: score mínimo E margem sobre o adversário
-  // Evita entrar em sinais ambíguos (BUY:0.51 SELL:0.49 = ruído)
   const diff = Math.abs(buy - sell);
   if (buy  > sell && buy  > 0.50 && diff > 0.12) return { side: 'BUY',  bots: used, buy, sell, regime };
   if (sell > buy  && sell > 0.50 && diff > 0.12) return { side: 'SELL', bots: used, buy, sell, regime };
@@ -292,14 +295,14 @@ module.exports = async function runBot() {
 
         log(`📕 ${prevPos.symbol} fechado externamente (Bitget) PnL:${pnl.toFixed(2)}%`);
 
-        // Atualizar brain com resultado estimado
+        // Atualizar brain com resultado
         const trade = setTradePnL(prevPos.symbol, pnl);
-        if (trade?.bots) {
-          for (const b of trade.bots) BRAIN.updateBot(b, pnl);
+        const botsToUpdate = trade?.bots || TRAIL_STATE[prevPos.symbol]?.bots;
+        if (botsToUpdate && botsToUpdate.length > 0) {
+          for (const b of botsToUpdate) BRAIN.updateBot(b, pnl);
+          log(`🧠 Brain atualizado: ${botsToUpdate.join(',')} → ${pnl.toFixed(2)}%`);
         } else {
-          // Sem trade registado — atualizar brain com estimativa
-          // Usar bots genéricos para não enviesar
-          log(`⚠️ ${prevPos.symbol} sem trade registado — brain não atualizado`);
+          log(`⚠️ ${prevPos.symbol} sem bots registados — brain não atualizado`);
         }
 
         // Limpar TRAIL_STATE
@@ -417,6 +420,8 @@ module.exports = async function runBot() {
       // Cooldown: não tentar este símbolo por 60s após abrir
       TRAIL_STATE[sym] = TRAIL_STATE[sym] || {};
       TRAIL_STATE[sym].lastOpen = Date.now();
+      TRAIL_STATE[sym].bots   = decision.bots;
+      TRAIL_STATE[sym].regime = decision.regime; // usar no exit para trailing adaptativo
       persistTrailState();
       // Marcar se a posição ficou sem proteção na exchange
       if (data.warning) {
