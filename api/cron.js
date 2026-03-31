@@ -109,19 +109,26 @@ function analyzeBots(candles) {
 
 // ===== API HELPER =====
 async function callApi(base, body) {
+  const controller = new AbortController();
+  // Timeout de 8s — se a API não responder, aborta em vez de bloquear forever
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const r = await fetch(base + '/api/bitget', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
+      signal:  controller.signal,
     });
+    clearTimeout(timer);
     if (!r.ok) {
       console.log('callApi HTTP error:', r.status, body.action);
       return null;
     }
     return await r.json();
   } catch(e) {
-    console.log('callApi network error:', e.message, body.action);
+    clearTimeout(timer);
+    const msg = e.name === 'AbortError' ? 'timeout 8s' : e.message;
+    console.log(`callApi error [${body.action}]: ${msg}`);
     return null;
   }
 }
