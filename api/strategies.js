@@ -264,10 +264,12 @@ function contextFilter(closesHigher) {
 function exitBot(pnl, timeOpen, maxPnl) {
   const MAX_TIME_MS = 20 * 60 * 1000; // 20 min
 
-  // Trailing agressivo acima de 1% — protege lucros grandes
+  // Trailing agressivo acima de 1%
   if (maxPnl >= 1.0 && pnl < maxPnl * 0.7) return 'TRAIL'; // recuo de 30%
-  // Trailing normal entre 0.7% e 1%
-  if (maxPnl >= 0.7 && pnl < maxPnl * 0.6) return 'TRAIL'; // recuo de 40%
+  // Trailing normal entre 0.5% e 1%
+  if (maxPnl >= 0.5 && pnl < maxPnl * 0.6) return 'TRAIL'; // recuo de 40%
+  // Trailing para scalps pequenos (RANGE típico)
+  if (maxPnl >= 0.25 && pnl < maxPnl * 0.65) return 'TRAIL'; // recuo de 35%
 
   // Trade fraca: 15min e ainda abaixo de 0.3% → libertar capital
   if (timeOpen > 18 * 60 * 1000 && pnl < 0.3 && pnl > -0.3) return 'TIME_WEAK'; // sideways 18min
