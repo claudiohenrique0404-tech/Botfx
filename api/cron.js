@@ -162,11 +162,12 @@ module.exports = async function runBot() {
 
     // ── Settings ──────────────────────────────────────────────
     const settings = await callApi(base, { action: 'getSettings' });
-    if (!settings.active) { log('⏸ BOT OFF'); return; }
+    if (!settings || !settings.active) { log('⏸ BOT OFF'); return; }
 
     // ── Balance ───────────────────────────────────────────────
     const balanceData = await callApi(base, { action: 'balance' });
-    const balance     = parseFloat(balanceData[0]?.available || 0);
+    if (!balanceData || !balanceData[0]) { log('❌ balance inválido'); return; }
+    const balance = parseFloat(balanceData[0]?.available || 0);
 
     if (!balance || balance <= 0) { log('❌ balance inválido'); return; }
 
@@ -180,6 +181,7 @@ module.exports = async function runBot() {
 
     // ── Posições abertas ──────────────────────────────────────
     const positions = await callApi(base, { action: 'positions' });
+    if (!Array.isArray(positions)) { log('❌ positions inválido'); return; }
     console.log('POSITIONS:', JSON.stringify(positions));
 
     // ── Gerir posições existentes ─────────────────────────────
