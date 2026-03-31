@@ -51,8 +51,13 @@ function rsiBot(closes) {
   const r = rsiCalc(closes);
 
   // Confiança proporcional ao extremo do RSI
-  if (r < 35) return { side: 'BUY',  confidence: 0.5 + (35 - r) / 100, bot: 'rsi' };
-  if (r > 65) return { side: 'SELL', confidence: 0.5 + (r - 65) / 100, bot: 'rsi' };
+  // Exige confirmação mínima: última vela tem de ir na direção esperada
+  const lastClose = closes.at(-1);
+  const prevClose = closes.at(-2);
+  // Exige movimento real, não apenas um tick
+  const recovery = prevClose > 0 ? (lastClose - prevClose) / prevClose : 0;
+  if (r < 35 && recovery >  0.0005) return { side: 'BUY',  confidence: 0.5 + (35 - r) / 100, bot: 'rsi' };
+  if (r > 65 && recovery < -0.0005) return { side: 'SELL', confidence: 0.5 + (r - 65) / 100, bot: 'rsi' };
   return null;
 }
 
@@ -193,10 +198,10 @@ function detectRegime(closes) {
   // Alta volatilidade → VOLATILE (cuidado)
   if (vol > 0.008) return 'VOLATILE'; // detetar volatilidade cedo
 
-  // Tendência forte → TREND
-  if (trendStrength > 0.005 && (
-    (e9 > e21 && e21 > e50) || (e9 < e21 && e21 < e50)
-  )) return 'TREND';
+  // Tendência por estrutura de EMA (mais robusto que % change)
+  // EMA alinhadas = tendência mesmo que lenta
+  const emaAligned = (e9 > e21 && e21 > e50) || (e9 < e21 && e21 < e50);
+  if (emaAligned && trendStrength > 0.001) return 'TREND';
 
   // Caso contrário → lateral
   return 'RANGE';
@@ -280,6 +285,12 @@ function exitBot(pnl, timeOpen, maxPnl) {
   return null;
 }
 
+// EMA50 para uso externo no filtro de entrada
+function ema50(closes) {
+  if (closes.length < 50) return closes.at(-1) || 0;
+  return ema(closes.slice(-50), 50);
+}
+
 module.exports = {
   trendBot,
   rsiBot,
@@ -292,4 +303,5 @@ module.exports = {
   exitBot,
   detectRegime,
   filterByRegime,
+  ema50,
 };
