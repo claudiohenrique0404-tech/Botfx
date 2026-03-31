@@ -373,11 +373,17 @@ module.exports = async function runBot() {
       const decision = analyzeBots(candles1m, candles5m);
       if (!decision) { log('❌ sem consenso'); continue; }
 
-      // Correlação: evitar 2 longs ou 2 shorts ao mesmo tempo
-      const decSide = decision.side === 'BUY' ? 'long' : 'short';
-      if (positions.length > 0 && openSides.every(s => s === decSide)) {
+      // Correlação: evitar 2 longs/shorts ao mesmo tempo
+      // Excepção: sinal muito forte (score>0.85 e 3+ bots) pode abrir 2ª posição
+      const decSide   = decision.side === 'BUY' ? 'long' : 'short';
+      const topScore  = decision.side === 'BUY' ? decision.buy : decision.sell;
+      const strongSignal = topScore > 0.85 && decision.bots.length >= 3;
+      if (positions.length > 0 && openSides.every(s => s === decSide) && !strongSignal) {
         log(`⚠️ ${sym} correlação — já tens ${positions.length} ${decSide}(s)`);
         continue;
+      }
+      if (positions.length > 0 && openSides.every(s => s === decSide) && strongSignal) {
+        log(`⚡ ${sym} sinal forte (${topScore.toFixed(2)}) — override correlação`);
       }
 
       // Filtro de contexto — 5m não pode contradizer
