@@ -54,7 +54,7 @@ async function persistStats() {
   }
 }
 
-// ── API pública (idêntica ao original) ───────────────────
+// ── API pública ───────────────────────────────────────────
 function updateBot(bot, pnl) {
   if (!BOT_STATS[bot]) return;
 
@@ -73,13 +73,14 @@ function getWeight(bot) {
   const s = BOT_STATS[bot];
   if (!s) return 0.5;
   const total = s.wins + s.losses;
-  if (total < 20) return 0.5; // sem dados suficientes — neutro
+  // Threshold aumentado para 50 — com menos trades os pesos são instáveis
+  // e o brain pode fazer overfitting precoce em amostras pequenas
+  if (total < 50) return 0.5;
 
   const winRate = s.wins / total;
   const avgPnl  = (s.totalPnl || 0) / total;
 
   // Score combinado: 70% winrate + 30% qualidade do lucro
-  // avgPnl normalizado entre -1 e +1
   const pnlScore = Math.max(-1, Math.min(1, avgPnl / 2));
   const score    = winRate * 0.7 + pnlScore * 0.3;
 
