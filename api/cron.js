@@ -152,6 +152,10 @@ async function callApi(base, body) {
 // ===== MAIN BOT =====
 module.exports = async function runBot() {
   try {
+    // Actualizar timestamp para o watchdog do worker.js
+    // Se este valor parar de ser actualizado por 90s → processo é reiniciado
+    global.lastBotRun = Date.now();
+
     const base = process.env.BASE_URL;
 
     // Carregar TRAIL_STATE na primeira execução
