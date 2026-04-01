@@ -21,7 +21,6 @@ const bitgetHandler = require('./api/bitget');
 
 http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api/bitget') {
-    // Recolher body
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -44,7 +43,20 @@ http.createServer(async (req, res) => {
 // ── Heartbeat — confirma que o processo está vivo ───────────
 setInterval(() => {
   console.log(`❤️ alive ${new Date().toLocaleTimeString('pt-PT', { timeZone: 'Europe/Lisbon' })}`);
-}, 15000); // a cada 15s — detetar freezes mais rápido
+}, 15000);
+
+// ── Watchdog — mata o processo se o bot ficar frozen ────────
+// O Render reinicia automaticamente após process.exit()
+// lastBotRun é actualizado no início de cada ciclo em cron.js
+global.lastBotRun = Date.now();
+
+setInterval(() => {
+  const elapsed = Date.now() - global.lastBotRun;
+  if (elapsed > 90000) { // 90s sem actividade — freeze confirmado
+    console.error(`💀 WATCHDOG: bot frozen ${Math.round(elapsed/1000)}s — restarting`);
+    process.exit(1);
+  }
+}, 30000); // verifica a cada 30s
 
 let running = false;
 
