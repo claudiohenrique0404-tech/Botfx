@@ -69,8 +69,12 @@ function momentumBot(closes) {
   const longAvg  = closes.slice(-20).reduce((a, b) => a + b) / 20;
   const mom = (shortAvg - longAvg) / longAvg;
 
-  if (mom >  0.002) return { side: 'BUY',  confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
-  if (mom < -0.002) return { side: 'SELL', confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
+  // Threshold reduzido de 0.002 → 0.0012:
+  // volumeBot é instantâneo (vela actual), momentumBot é lento (média 5 vs 20)
+  // Com 0.002 raramente coincidiam no mesmo ciclo — desalinhamento estrutural
+  // 0.0012 sincroniza melhor os dois sem degradar qualidade (filtros posteriores intactos)
+  if (mom >  0.0012) return { side: 'BUY',  confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
+  if (mom < -0.0012) return { side: 'SELL', confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
   return null;
 }
 
@@ -223,9 +227,12 @@ function filterByRegime(signals, regime) {
     delete filtered.trend;
     delete filtered.momentum;
   } else if (regime === 'VOLATILE') {
-    // Mercado volátil — só breakout e volume com alta conf
+    // Mercado volátil — filtro moderado
+    // 0.75 era demasiado restritivo: apagava todos os sinais em VOLATILE
+    // 0.60 mantém qualidade mínima mas permite que bots como volume participem
+    // Continua a exigir 2 bots em consenso — a protecção real está aí
     Object.keys(filtered).forEach(k => {
-      if (filtered[k] && filtered[k].confidence < 0.75) delete filtered[k];
+      if (filtered[k] && filtered[k].confidence < 0.60) delete filtered[k];
     });
   }
 
