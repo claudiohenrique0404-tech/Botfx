@@ -152,10 +152,6 @@ async function callApi(base, body) {
 // ===== MAIN BOT =====
 module.exports = async function runBot() {
   try {
-    // Actualizar timestamp para o watchdog do worker.js
-    // Se este valor parar de ser actualizado por 90s → processo é reiniciado
-    global.lastBotRun = Date.now();
-
     const base = process.env.BASE_URL;
 
     // Carregar TRAIL_STATE na primeira execução
@@ -368,16 +364,18 @@ module.exports = async function runBot() {
 
       log(`🔍 ${sym}`);
 
-      const [r1m, r5m] = await Promise.allSettled([
-        callApi(base, { action: 'candles', symbol: sym, tf: '1m' }),
+      // Timeframe base: 5m (menos ruído que 1m, menos contradições com contexto)
+      // Contexto: 15m (tendência maior para filtrar contra-tendência)
+      const [r5m, r15m] = await Promise.allSettled([
         callApi(base, { action: 'candles', symbol: sym, tf: '5m' }),
+        callApi(base, { action: 'candles', symbol: sym, tf: '15m' }),
       ]);
-      const candles1m = r1m.status === 'fulfilled' ? r1m.value : null;
-      const candles5m = r5m.status === 'fulfilled' ? r5m.value : null;
+      const candles5m  = r5m.status  === 'fulfilled' ? r5m.value  : null;
+      const candles15m = r15m.status === 'fulfilled' ? r15m.value : null;
 
-      if (!candles1m || !candles1m.length) { log('⚠️ sem candles'); continue; }
+      if (!candles5m || !candles5m.length) { log('⚠️ sem candles'); continue; }
 
-      const closes = candles1m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]).filter(v => v && !isNaN(v));
+      const closes = candles5m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]).filter(v => v && !isNaN(v));
       if (closes.length < 50) { log(`⚠️ ${sym} candles insuficientes (${closes.length})`); continue; }
 
       const price = closes.at(-1);
@@ -385,8 +383,8 @@ module.exports = async function runBot() {
 
       if (!STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
 
-      // Decisão no 1m — mas regime detectado com 5m (janela maior = tendência real)
-      const decision = analyzeBots(candles1m, candles5m);
+      // Decisão no 5m — regime detectado com 15m (janela maior = tendência real)
+      const decision = analyzeBots(candles5m, candles15m);
       if (!decision) { log('❌ sem consenso'); continue; }
 
       // Correlação: evitar 2 longs/shorts ao mesmo tempo
@@ -402,19 +400,19 @@ module.exports = async function runBot() {
         log(`⚡ ${sym} sinal forte (${topScore.toFixed(2)}) — override correlação`);
       }
 
-      // Filtro de contexto — 5m não pode contradizer
-      if (candles5m && candles5m.length >= 50) {
-        const closes5m  = candles5m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
-        const context5m = STRAT.contextFilter(closes5m);
-        if (context5m !== 'NEUTRAL' && context5m !== decision.side) {
-          log(`🚫 ${sym} contra-tendência (5m:${context5m} 1m:${decision.side})`);
+      // Filtro de contexto — 15m não pode contradizer o 5m
+      if (candles15m && candles15m.length >= 50) {
+        const closes15m  = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
+        const context15m = STRAT.contextFilter(closes15m);
+        if (context15m !== 'NEUTRAL' && context15m !== decision.side) {
+          log(`🚫 ${sym} contra-tendência (15m:${context15m} 5m:${decision.side})`);
           continue;
         }
 
-        // Filtro EMA50: posição do preço E inclinação da EMA
-        const ema50now  = STRAT.ema50(closes5m);
-        const ema50prev = STRAT.ema50(closes5m.slice(0, -1));
-        const ema50prev2 = STRAT.ema50(closes5m.slice(0, -2));
+        // Filtro EMA50: posição do preço E inclinação da EMA no 15m
+        const ema50now  = STRAT.ema50(closes15m);
+        const ema50prev = STRAT.ema50(closes15m.slice(0, -1));
+        const ema50prev2 = STRAT.ema50(closes15m.slice(0, -2));
         const slope1 = (ema50now  - ema50prev)  / ema50prev;
         const slope2 = (ema50prev - ema50prev2) / ema50prev2;
 
