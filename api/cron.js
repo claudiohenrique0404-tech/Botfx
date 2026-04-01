@@ -152,6 +152,9 @@ async function callApi(base, body) {
 // ===== MAIN BOT =====
 module.exports = async function runBot() {
   try {
+    // Actualizar timestamp para o watchdog
+    global.lastBotRun = Date.now();
+
     const base = process.env.BASE_URL;
 
     // Carregar TRAIL_STATE na primeira execução
@@ -363,6 +366,9 @@ module.exports = async function runBot() {
       }
 
       log(`🔍 ${sym}`);
+
+      // Delay entre símbolos — evita rate limit (19 símbolos × 2 calls)
+      await new Promise(r => setTimeout(r, 500));
 
       // Timeframe base: 5m (menos ruído que 1m, menos contradições com contexto)
       // Contexto: 15m (tendência maior para filtrar contra-tendência)
