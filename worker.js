@@ -21,6 +21,7 @@ const bitgetHandler = require('./api/bitget');
 
 http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api/bitget') {
+    // Recolher body
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -43,20 +44,18 @@ http.createServer(async (req, res) => {
 // ── Heartbeat — confirma que o processo está vivo ───────────
 setInterval(() => {
   console.log(`❤️ alive ${new Date().toLocaleTimeString('pt-PT', { timeZone: 'Europe/Lisbon' })}`);
-}, 15000);
+}, 15000); // a cada 15s — detetar freezes mais rápido
 
 // ── Watchdog — mata o processo se o bot ficar frozen ────────
-// O Render reinicia automaticamente após process.exit()
-// lastBotRun é actualizado no início de cada ciclo em cron.js
 global.lastBotRun = Date.now();
 
 setInterval(() => {
   const elapsed = Date.now() - global.lastBotRun;
-  if (elapsed > 90000) { // 90s sem actividade — freeze confirmado
+  if (elapsed > 120000) { // 120s sem actividade — freeze confirmado
     console.error(`💀 WATCHDOG: bot frozen ${Math.round(elapsed/1000)}s — restarting`);
     process.exit(1);
   }
-}, 30000); // verifica a cada 30s
+}, 30000);
 
 let running = false;
 
@@ -75,14 +74,14 @@ async function start() {
       // Timeout global: se runBot() não terminar em 45s, aborta o ciclo
       await Promise.race([
         runBot(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('runBot timeout 45s')), 45000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('runBot timeout 90s')), 90000)),
       ]);
     } catch (e) {
       console.error('🔥 LOOP ERROR:', e.message);
     } finally {
       running = false; // garantido mesmo em casos extremos
     }
-    await sleep(5000);
+    await sleep(15000); // 15s — candles 5m não mudam em 5s, reduz carga API
   }
 }
 
