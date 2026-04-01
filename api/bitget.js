@@ -9,9 +9,12 @@ if (!global.BOT_SETTINGS) {
     active: true,
     risk: 1,
     lev: 3,
-    symbols: [
+    symbols:  [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
-      'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT'
+      'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT',
+      'DOTUSDT','MATICUSDT','NEARUSDT','ATOMUSDT',
+      'LTCUSDT','UNIUSDT','APTUSDT','ARBUSDT',
+      'OPUSDT','INJUSDT','SUIUSDT','TIAUSDT'
     ]
   };
 }
