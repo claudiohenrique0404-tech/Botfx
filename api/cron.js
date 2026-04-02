@@ -104,8 +104,8 @@ function analyzeBots(candles, candles5m) {
 
   // Threshold combinado: score mínimo E margem sobre o adversário
   const diff = Math.abs(buy - sell);
-  if (buy  > sell && buy  > 0.50 && diff > 0.12) return { side: 'BUY',  bots: used, buy, sell, regime };
-  if (sell > buy  && sell > 0.50 && diff > 0.12) return { side: 'SELL', bots: used, buy, sell, regime };
+  if (buy  > sell && buy  > 0.50 && diff > 0.08) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (sell > buy  && sell > 0.50 && diff > 0.08) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
