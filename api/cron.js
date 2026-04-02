@@ -474,7 +474,7 @@ module.exports = async function runBot() {
         continue;
       }
 
-      log(`🚀 ${decision.side} ${sym} @ ${price}`);
+      log(`🚀 ${decision.side} ${sym} @ ${price} (candle) — exec real no bitget.js`);
       // Cooldown: não tentar este símbolo por 60s após abrir
       TRAIL_STATE[sym] = TRAIL_STATE[sym] || {};
       TRAIL_STATE[sym].lastOpen = Date.now();
