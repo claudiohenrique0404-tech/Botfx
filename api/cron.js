@@ -105,7 +105,7 @@ function analyzeBots(candles, candles5m) {
   // Threshold combinado: score mínimo E margem sobre o adversário
   const diff = Math.abs(buy - sell);
   if (buy  > sell && buy  > 0.60 && diff > 0.15) return { side: 'BUY',  bots: used, buy, sell, regime };
-  if (sell > buy  && sell > 0.50 && diff > 0.08) return { side: 'SELL', bots: used, buy, sell, regime };
+  if (sell > buy  && sell > 0.60 && diff > 0.15) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
@@ -220,7 +220,7 @@ module.exports = async function runBot() {
       }
 
       // Partial TP: fechar 50% da posição quando pnl >= 0.8%
-      if (pnl >= 0.5 && !TRAIL_STATE[symbol].partialDone) {
+      if (pnl >= 0.8 && !TRAIL_STATE[symbol].partialDone) {
         TRAIL_STATE[symbol].partialDone = true;
         const halfSize = (parseFloat(pos.total || 0) / 2).toFixed(4);
         try {
@@ -238,7 +238,7 @@ module.exports = async function runBot() {
         await new Promise(r => setTimeout(r, 300));
       }
 
-      // Breakeven: se passou 0.5% de lucro, atualizar SL para entry na Bitget
+      // Breakeven: se passou 0.3% de lucro, atualizar SL para entry na Bitget
       if (pnl >= 0.3 && !TRAIL_STATE[symbol].beSet) {
         TRAIL_STATE[symbol].beSet = true;
         const dp = entry > 10000 ? 1 : entry > 100 ? 2 : entry > 1 ? 4 : 6;
@@ -277,7 +277,7 @@ module.exports = async function runBot() {
 
       // SL hard fallback
       // Se sem proteção na exchange → SL mais apertado (-0.5%)
-      const slThreshold = TRAIL_STATE[symbol]?.noProtection ? -0.5 : -0.5;
+      const slThreshold = -0.5; // SL apertado — R/R obriga a cortar perdas cedo
       if (pnl <= slThreshold) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}% (thresh:${slThreshold}%)`; }
       // TP e trailing geridos pelo exitBot + Bitget
       else if (exitReason === 'TRAIL') { shouldClose = true; closeReason = `TRAIL (pico:${maxPnl.toFixed(2)}% → ${pnl.toFixed(2)}%)`; }
@@ -400,10 +400,15 @@ module.exports = async function runBot() {
         log(`⚡ ${sym} sinal forte (${topScore.toFixed(2)}) — override correlação`);
       }
 
-      // Filtro de contexto + EMA50 — ignorado em VOLATILE
-      // Em VOLATILE o mercado move rápido e estes filtros ficam desactualizados
+      // Filtro de contexto + EMA50
+      // Em VOLATILE: exige diff > 0.25 (sinal muito forte) mas mantém EMA50
       const regime15m = decision.regime || 'RANGE';
-      if (regime15m !== 'VOLATILE' && candles15m && candles15m.length >= 50) {
+      const topDiff = Math.abs(decision.buy - decision.sell);
+      if (regime15m === 'VOLATILE' && topDiff < 0.25) {
+        log(`🚫 ${sym} VOLATILE fraco (diff:${topDiff.toFixed(2)}) — bloqueado`);
+        continue;
+      }
+      if (candles15m && candles15m.length >= 50) {
         const closes15m  = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
         const context15m = STRAT.contextFilter(closes15m);
         if (context15m !== 'NEUTRAL' && context15m !== decision.side) {
