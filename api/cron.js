@@ -41,7 +41,7 @@ let LOGS = global.LOGS;
 // ===== STATE =====
 let START_BALANCE = null;
 
-const MAX_DAILY_LOSS = -3; // %
+const MAX_DAILY_LOSS = -6; // 5x leverage: 2 SL completos = -5% // %
 
 // Trailing state por símbolo — persiste entre ciclos de 5s
 const TRAIL_STATE = {};
@@ -220,7 +220,7 @@ module.exports = async function runBot() {
       }
 
       // Partial TP: fechar 50% da posição quando pnl >= 0.8%
-      if (pnl >= 0.8 && !TRAIL_STATE[symbol].partialDone) {
+      if (pnl >= 0.6 && !TRAIL_STATE[symbol].partialDone) {
         TRAIL_STATE[symbol].partialDone = true;
         const halfSize = (parseFloat(pos.total || 0) / 2).toFixed(4);
         try {
@@ -343,7 +343,7 @@ module.exports = async function runBot() {
 
     // ── Procurar novos sinais ─────────────────────────────────
     // Máx 1 posição de cada vez — evita risco acumulado
-    const MAX_POSITIONS = 5;
+    const MAX_POSITIONS = 2;
     if (positions.length >= MAX_POSITIONS) {
       log(`⏸ ${positions.length}/${MAX_POSITIONS} posições ativas — aguardar`);
       return;
