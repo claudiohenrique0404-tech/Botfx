@@ -481,10 +481,17 @@ module.exports = async function runBot() {
       TRAIL_STATE[sym].bots   = decision.bots;
       TRAIL_STATE[sym].regime = decision.regime; // usar no exit para trailing adaptativo
       persistTrailState();
-      // Marcar se a posição ficou sem proteção na exchange
+      // Se SL/TP falharam → fechar imediatamente (perda de fees vs perda grande)
       if (data.warning) {
-        TRAIL_STATE[sym].noProtection = true;
-        log(`⚠️ ${sym} sem SL/TP na Bitget — modo proteção manual ativo`);
+        log(`🛑 ${sym} ORDEM SEM PROTEÇÃO — FECHAR IMEDIATO`);
+        await callApi(base, {
+          action: 'close',
+          symbol: sym,
+          holdSide: decision.side === 'BUY' ? 'long' : 'short',
+        });
+        delete TRAIL_STATE[sym];
+        persistTrailState();
+        continue;
       }
 
       await saveTrade({ symbol: sym, side: decision.side, qty, bots: decision.bots, time: Date.now() });
