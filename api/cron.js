@@ -343,7 +343,7 @@ module.exports = async function runBot() {
 
     // ── Procurar novos sinais ─────────────────────────────────
     // Máx 1 posição de cada vez — evita risco acumulado
-    const MAX_POSITIONS = 2;
+    const MAX_POSITIONS = 5;
     if (positions.length >= MAX_POSITIONS) {
       log(`⏸ ${positions.length}/${MAX_POSITIONS} posições ativas — aguardar`);
       return;
@@ -400,8 +400,10 @@ module.exports = async function runBot() {
         log(`⚡ ${sym} sinal forte (${topScore.toFixed(2)}) — override correlação`);
       }
 
-      // Filtro de contexto — 15m não pode contradizer o 5m
-      if (candles15m && candles15m.length >= 50) {
+      // Filtro de contexto + EMA50 — ignorado em VOLATILE
+      // Em VOLATILE o mercado move rápido e estes filtros ficam desactualizados
+      const regime15m = decision.regime || 'RANGE';
+      if (regime15m !== 'VOLATILE' && candles15m && candles15m.length >= 50) {
         const closes15m  = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
         const context15m = STRAT.contextFilter(closes15m);
         if (context15m !== 'NEUTRAL' && context15m !== decision.side) {
@@ -409,8 +411,7 @@ module.exports = async function runBot() {
           continue;
         }
 
-        // Filtro EMA50: preço do lado certo da EMA50 + slope actual positivo
-        // Removida consistência de 2 velas — bloqueava entradas em recuperações
+        // Filtro EMA50: preço do lado certo + slope positivo
         const ema50now  = STRAT.ema50(closes15m);
         const ema50prev = STRAT.ema50(closes15m.slice(0, -1));
         const slope = (ema50now - ema50prev) / ema50prev;
