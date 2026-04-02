@@ -104,7 +104,7 @@ function analyzeBots(candles, candles5m) {
 
   // Threshold combinado: score mínimo E margem sobre o adversário
   const diff = Math.abs(buy - sell);
-  if (buy  > sell && buy  > 0.50 && diff > 0.08) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (buy  > sell && buy  > 0.60 && diff > 0.15) return { side: 'BUY',  bots: used, buy, sell, regime };
   if (sell > buy  && sell > 0.50 && diff > 0.08) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
@@ -220,7 +220,7 @@ module.exports = async function runBot() {
       }
 
       // Partial TP: fechar 50% da posição quando pnl >= 0.8%
-      if (pnl >= 0.8 && !TRAIL_STATE[symbol].partialDone) {
+      if (pnl >= 0.5 && !TRAIL_STATE[symbol].partialDone) {
         TRAIL_STATE[symbol].partialDone = true;
         const halfSize = (parseFloat(pos.total || 0) / 2).toFixed(4);
         try {
@@ -239,7 +239,7 @@ module.exports = async function runBot() {
       }
 
       // Breakeven: se passou 0.5% de lucro, atualizar SL para entry na Bitget
-      if (pnl >= 0.5 && !TRAIL_STATE[symbol].beSet) {
+      if (pnl >= 0.3 && !TRAIL_STATE[symbol].beSet) {
         TRAIL_STATE[symbol].beSet = true;
         const dp = entry > 10000 ? 1 : entry > 100 ? 2 : entry > 1 ? 4 : 6;
         const beBuf = entry * 0.001; // pequeno buffer acima do entry
@@ -277,7 +277,7 @@ module.exports = async function runBot() {
 
       // SL hard fallback
       // Se sem proteção na exchange → SL mais apertado (-0.5%)
-      const slThreshold = TRAIL_STATE[symbol]?.noProtection ? -0.5 : -0.8;
+      const slThreshold = TRAIL_STATE[symbol]?.noProtection ? -0.5 : -0.5;
       if (pnl <= slThreshold) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}% (thresh:${slThreshold}%)`; }
       // TP e trailing geridos pelo exitBot + Bitget
       else if (exitReason === 'TRAIL') { shouldClose = true; closeReason = `TRAIL (pico:${maxPnl.toFixed(2)}% → ${pnl.toFixed(2)}%)`; }
