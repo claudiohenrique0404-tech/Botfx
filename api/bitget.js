@@ -7,7 +7,7 @@ const BASE = 'https://api.bitget.com';
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
     active: true,
-    risk: 1,
+    risk: 2,
     lev: 5,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
