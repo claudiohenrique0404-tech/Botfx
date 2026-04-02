@@ -39,10 +39,8 @@ if (!global.LOGS) global.LOGS = [];
 let LOGS = global.LOGS;
 
 // ===== STATE =====
-let TRADES_TODAY  = 0;
 let START_BALANCE = null;
 
-const MAX_TRADES_DAY = 10;
 const MAX_DAILY_LOSS = -3; // %
 
 // Trailing state por símbolo — persiste entre ciclos de 5s
@@ -182,7 +180,6 @@ module.exports = async function runBot() {
     log(`💰 ${balance.toFixed(2)} | Day: ${pnlDay.toFixed(2)}%`);
 
     if (pnlDay <= MAX_DAILY_LOSS) { log('🛑 KILL SWITCH'); return; }
-    if (TRADES_TODAY >= MAX_TRADES_DAY) { log('⏸ LIMITE ATINGIDO'); return; }
 
     // ── Posições abertas ──────────────────────────────────────
     const positions = await callApi(base, { action: 'positions' });
@@ -367,9 +364,6 @@ module.exports = async function runBot() {
 
       log(`🔍 ${sym}`);
 
-      // Delay entre símbolos — evita rate limit (19 símbolos × 2 calls)
-      await new Promise(r => setTimeout(r, 500));
-
       // Timeframe base: 5m (menos ruído que 1m, menos contradições com contexto)
       // Contexto: 15m (tendência maior para filtrar contra-tendência)
       const [r5m, r15m] = await Promise.allSettled([
@@ -496,7 +490,6 @@ module.exports = async function runBot() {
       await saveTrade({ symbol: sym, side: decision.side, qty, bots: decision.bots, time: Date.now() });
       await saveEquity(balance);
 
-      TRADES_TODAY++;
       break; // um trade por ciclo
     }
 
