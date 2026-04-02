@@ -409,23 +409,17 @@ module.exports = async function runBot() {
           continue;
         }
 
-        // Filtro EMA50: posição do preço E inclinação da EMA no 15m
+        // Filtro EMA50: preço do lado certo da EMA50 + slope actual positivo
+        // Removida consistência de 2 velas — bloqueava entradas em recuperações
         const ema50now  = STRAT.ema50(closes15m);
         const ema50prev = STRAT.ema50(closes15m.slice(0, -1));
-        const ema50prev2 = STRAT.ema50(closes15m.slice(0, -2));
-        const slope1 = (ema50now  - ema50prev)  / ema50prev;
-        const slope2 = (ema50prev - ema50prev2) / ema50prev2;
+        const slope = (ema50now - ema50prev) / ema50prev;
 
-        // Consistência: slope atual forte E slope anterior na mesma direção
-        const emaUpStrong   = slope1 >  0.0002 && slope2 > 0;
-        const emaDownStrong = slope1 < -0.0002 && slope2 < 0;
-        const slope = slope1;
-
-        if (decision.side === 'BUY' && (price < ema50now || !emaUpStrong)) {
+        if (decision.side === 'BUY' && (price < ema50now || slope < 0)) {
           log(`🚫 ${sym} BUY bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
           continue;
         }
-        if (decision.side === 'SELL' && (price > ema50now || !emaDownStrong)) {
+        if (decision.side === 'SELL' && (price > ema50now || slope > 0)) {
           log(`🚫 ${sym} SELL bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
           continue;
         }
