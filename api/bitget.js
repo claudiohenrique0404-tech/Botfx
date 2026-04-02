@@ -7,7 +7,7 @@ const BASE = 'https://api.bitget.com';
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
     active: true,
-    risk: 1,
+    risk: 2,
     lev: 5,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
@@ -241,11 +241,14 @@ module.exports = async (req, res) => {
           // Evita rejeição por mismatch entre qty calculado e qty real (arredondamento Bitget)
         };
 
+        // Delay extra — Bitget precisa de reconhecer a posição antes de aceitar SL/TP
+        await new Promise(r => setTimeout(r, 800));
+
         const slRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
           ...tpslBase, planType: 'loss_plan', triggerPrice: String(slPrice),
         }).catch(e => ({ code: 'ERR', msg: e.message }));
 
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 300));
 
         const tpRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
           ...tpslBase, planType: 'profit_plan', triggerPrice: String(tpPrice),
