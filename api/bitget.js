@@ -198,10 +198,24 @@ module.exports = async (req, res) => {
 
       console.log(`✅ ORDER ${side} ${sym} qty:${p.quantity} ${lev}x`);
 
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 600));
 
-      // 4. SL + TP na Bitget
-      const price = parseFloat(p.price || 0);
+      // 4. Buscar preço real de execução — evita SL/TP calculados sobre preço de candle desactualizado
+      // O preço dos candles pode diferir significativamente do preço real de execução
+      let execPrice = 0;
+      try {
+        const orderDetail = await bg('GET', `/api/v2/mix/order/detail?symbol=${sym}&productType=${pt}&orderId=${orderRes.data.orderId}`);
+        const fillPrice = parseFloat(orderDetail?.data?.fillPrice || orderDetail?.data?.priceAvg || 0);
+        if (fillPrice > 0) {
+          execPrice = fillPrice;
+          console.log(`💱 Preço execução real: ${execPrice} (candle era: ${p.price})`);
+        }
+      } catch(e) {
+        console.log('⚠️ Não foi possível obter preço de execução:', e.message);
+      }
+
+      // Fallback para preço do candle se não conseguiu o preço real
+      const price = execPrice > 0 ? execPrice : parseFloat(p.price || 0);
       if (price > 0) {
         const dp = price > 10000 ? 1 : price > 100 ? 2 : price > 1 ? 4 : 6;
 
