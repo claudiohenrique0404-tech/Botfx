@@ -7,7 +7,7 @@ const BASE = 'https://api.bitget.com';
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
     active: true,
-    risk: 2,
+    risk: 1,
     lev: 5,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
@@ -253,6 +253,10 @@ module.exports = async (req, res) => {
 
         const slOk = slRes && slRes.code === '00000';
         const tpOk = tpRes && tpRes.code === '00000';
+
+        // Log detalhado para debug — mostra erro exacto da Bitget
+        if (!slOk) console.error(`❌ SL FAIL ${sym}: code=${slRes?.code} msg=${slRes?.msg} price=${slPrice}`);
+        if (!tpOk) console.error(`❌ TP FAIL ${sym}: code=${tpRes?.code} msg=${tpRes?.msg} price=${tpPrice}`);
 
         if (!slOk || !tpOk) {
           // SL/TP falharam — logar mas NÃO fechar
