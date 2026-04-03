@@ -6,9 +6,9 @@ const BASE = 'https://api.bitget.com';
 // ===== SETTINGS =====
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
-    active: false,
+    active: true,
     risk: 1,
-    lev: 5,
+    lev: 3,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
       'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT',
