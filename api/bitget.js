@@ -1,10 +1,9 @@
-// (mantive tudo igual até à parte do TPSL — só mostro completo já corrigido)
-
 const { createHmac } = require('crypto');
 const fetch = global.fetch || require('node-fetch');
 
 const BASE = 'https://api.bitget.com';
 
+// ===== SETTINGS =====
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
     active: true,
@@ -21,12 +20,14 @@ if (!global.BOT_SETTINGS) {
 function getSettings()  { return global.BOT_SETTINGS; }
 function setSettings(s) { global.BOT_SETTINGS = { ...global.BOT_SETTINGS, ...s }; }
 
+// ===== SIGN =====
 function sign(ts, method, path, body, secret) {
   return createHmac('sha256', secret)
     .update(ts + method.toUpperCase() + path + (body || ''))
     .digest('base64');
 }
 
+// ===== HANDLER =====
 module.exports = async (req, res) => {
   try {
     let body = req.body;
@@ -55,7 +56,7 @@ module.exports = async (req, res) => {
     };
 
     const bg = async (method, path, body) => {
-      const bs  = body ? JSON.stringify(body) : undefined;
+      const bs = body ? JSON.stringify(body) : undefined;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 9000);
       try {
@@ -69,10 +70,23 @@ module.exports = async (req, res) => {
         return await r.json();
       } catch(e) {
         clearTimeout(timer);
-        console.error(`bg error [${method} ${path}]:`, e.message);
         return { code: 'NET_ERR', msg: e.message };
       }
     };
+
+    if (action === 'balance') {
+      const d = await bg('GET', '/api/v2/mix/account/accounts?productType=USDT-FUTURES');
+      const data = (d.data || []).map(acc => ({
+        ...acc,
+        available: acc.usdtEquity || acc.available,
+      }));
+      return res.json(data);
+    }
+
+    if (action === 'positions') {
+      const d = await bg('GET', '/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT');
+      return res.json((d.data || []).filter(p => parseFloat(p.total) > 0));
+    }
 
     // ===== ORDER =====
     if (action === 'order') {
@@ -82,18 +96,24 @@ module.exports = async (req, res) => {
       const lev      = String(getSettings().lev || 3);
       const pt       = 'USDT-FUTURES';
 
+      // ✅ FIX 1 — SIZE VALIDATION
+      const safeSize = Number(p.quantity);
+      if (!safeSize || safeSize <= 0) {
+        console.error(`❌ SIZE INVÁLIDO ${sym}`);
+        return res.json({ code: 'SIZE_ERR' });
+      }
+
       await bg('POST', '/api/v2/mix/account/set-margin-mode', {
         symbol: sym, productType: pt, marginCoin: 'USDT', marginMode: 'isolated',
-      });
+      }).catch(() => {});
 
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 200));
 
       await bg('POST', '/api/v2/mix/account/set-leverage', {
-        symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev, holdSide,
+        symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev,
       });
 
-      await new Promise(r => setTimeout(r, 300));
-
+      // ✅ FIX 2 — usar safeSize
       const orderRes = await bg('POST', '/api/v2/mix/order/place-order', {
         symbol: sym,
         productType: pt,
@@ -102,94 +122,61 @@ module.exports = async (req, res) => {
         side,
         tradeSide: 'open',
         orderType: 'market',
-        size: String(Math.abs(p.quantity)),
+        size: safeSize.toFixed(4),
       });
 
-      if (!orderRes?.data?.orderId) {
-        console.error('ORDER FAIL:', orderRes);
-        return res.json(orderRes);
-      }
+      if (!orderRes?.data?.orderId) return res.json(orderRes);
 
-      console.log(`✅ ORDER ${side} ${sym} qty:${p.quantity}`);
+      console.log(`✅ ORDER ${side} ${sym} qty:${safeSize}`);
 
       await new Promise(r => setTimeout(r, 800));
 
       const price = parseFloat(p.price || 0);
-      if (price <= 0) return res.json(orderRes);
+      if (price > 0) {
+        const slPrice = price * 0.994;
+        const tpPrice = price * 1.02;
 
-      const dp = price > 100 ? 2 : 4;
+        // ✅ FIX 3 — usar safeSize no SL/TP
+        const tpslBase = {
+          symbol: sym,
+          productType: pt,
+          marginCoin: 'USDT',
+          holdSide,
+          triggerType: 'mark_price',
+          executePrice: '0',
+          size: safeSize.toFixed(4),
+        };
 
-      const slPrice = parseFloat((price * 0.994).toFixed(dp));
-      const tpPrice = parseFloat((price * 1.02).toFixed(dp));
-
-      // ===== FIX SIZE =====
-      const safeSize = Number(p.quantity);
-      if (!safeSize || safeSize <= 0) {
-        console.error(`❌ SIZE INVÁLIDO ${sym}`);
-        return res.json({ code: 'SIZE_ERR' });
-      }
-
-      const sizeStr = safeSize.toFixed(4);
-
-      const base = {
-        symbol: sym,
-        productType: pt,
-        marginCoin: 'USDT',
-        holdSide,
-        triggerType: 'mark_price',
-        executePrice: '0',
-        size: sizeStr,
-      };
-
-      await new Promise(r => setTimeout(r, 1200));
-
-      let slRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-        ...base,
-        planType: 'loss_plan',
-        triggerPrice: String(slPrice),
-      });
-
-      let tpRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-        ...base,
-        planType: 'profit_plan',
-        triggerPrice: String(tpPrice),
-      });
-
-      const slOk = slRes?.code === '00000';
-      const tpOk = tpRes?.code === '00000';
-
-      if (!slOk || !tpOk) {
-        console.log(`🔁 RETRY SL/TP ${sym}`);
-
-        await new Promise(r => setTimeout(r, 500));
-
-        slRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-          ...base,
+        await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+          ...tpslBase,
           planType: 'loss_plan',
           triggerPrice: String(slPrice),
         });
 
-        tpRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-          ...base,
+        await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+          ...tpslBase,
           planType: 'profit_plan',
           triggerPrice: String(tpPrice),
         });
 
-        if (slRes?.code !== '00000' || tpRes?.code !== '00000') {
-          console.error(`❌ SL/TP FAIL ${sym}`);
-          return res.json({ code: '00000', warning: true });
-        }
+        console.log('🛡️ SL/TP enviados');
       }
-
-      console.log(`🛡️ SL/TP OK ${sym}`);
 
       return res.json(orderRes);
     }
 
-    return res.json({ ok: true });
+    if (action === 'close') {
+      return res.json(await bg('POST', '/api/v2/mix/order/close-positions', {
+        symbol: p.symbol,
+        productType: 'USDT-FUTURES',
+        holdSide: p.holdSide,
+      }));
+    }
+
+    return res.status(400).json({ error: 'Invalid action' });
 
   } catch (e) {
-    console.error(e);
     return res.status(500).json({ error: e.message });
   }
+};
 };
