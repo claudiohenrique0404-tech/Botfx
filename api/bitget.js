@@ -237,8 +237,7 @@ module.exports = async (req, res) => {
           symbol: sym, productType: pt, marginCoin: 'USDT',
           holdSide, triggerType: 'mark_price',
           executePrice: '0',
-          // Sem size → Bitget aplica SL/TP ao total da posição
-          // Evita rejeição por mismatch entre qty calculado e qty real (arredondamento Bitget)
+          size: String(Math.abs(p.quantity)), // obrigatório pela API Bitget v2
         };
 
         // Delay extra — Bitget precisa de reconhecer a posição antes de aceitar SL/TP
