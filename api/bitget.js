@@ -233,32 +233,38 @@ module.exports = async (req, res) => {
           ? parseFloat((price * (1 + tpPct)).toFixed(dp))
           : parseFloat((price * (1 - tpPct)).toFixed(dp));
 
-        const tpslBase = {
-          symbol: sym, productType: pt, marginCoin: 'USDT',
-          holdSide, triggerType: 'mark_price',
-          executePrice: '0',
-          size: String(Math.round(Math.abs(p.quantity) * 10) / 10), // arredondado a 1 decimal (checkScale=1)
-        };
-
         // Delay extra — Bitget precisa de reconhecer a posição antes de aceitar SL/TP
         await new Promise(r => setTimeout(r, 800));
 
-        const slRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-          ...tpslBase, planType: 'loss_plan', triggerPrice: String(slPrice),
-        }).catch(e => ({ code: 'ERR', msg: e.message }));
+        // Tentar SL/TP com diferentes precisões de size (checkScale varia por símbolo)
+        // Tenta 0 decimais primeiro (mais compatível), depois 1 decimal
+        const tryTpsl = async (planType, triggerPrice) => {
+          const sizes = [
+            String(Math.round(Math.abs(p.quantity))),          // 0 decimais: ex 61
+            String(Math.round(Math.abs(p.quantity) * 10) / 10), // 1 decimal: ex 1.7
+          ];
+          for (const sz of sizes) {
+            const res = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+              symbol: sym, productType: pt, marginCoin: 'USDT',
+              holdSide, triggerType: 'mark_price',
+              executePrice: '0', size: sz,
+              planType, triggerPrice: String(triggerPrice),
+            }).catch(e => ({ code: 'ERR', msg: e.message }));
+            if (res && res.code === '00000') {
+              console.log(`✅ ${planType} OK size=${sz}`);
+              return res;
+            }
+            console.error(`❌ ${planType} FAIL size=${sz}: code=${res?.code} msg=${res?.msg}`);
+          }
+          return { code: 'ERR', msg: 'all sizes failed' };
+        };
 
+        const slRes = await tryTpsl('loss_plan', slPrice);
         await new Promise(r => setTimeout(r, 300));
-
-        const tpRes = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-          ...tpslBase, planType: 'profit_plan', triggerPrice: String(tpPrice),
-        }).catch(e => ({ code: 'ERR', msg: e.message }));
+        const tpRes = await tryTpsl('profit_plan', tpPrice);
 
         const slOk = slRes && slRes.code === '00000';
         const tpOk = tpRes && tpRes.code === '00000';
-
-        // Log detalhado para debug — mostra erro exacto da Bitget
-        if (!slOk) console.error(`❌ SL FAIL ${sym}: code=${slRes?.code} msg=${slRes?.msg} price=${slPrice}`);
-        if (!tpOk) console.error(`❌ TP FAIL ${sym}: code=${tpRes?.code} msg=${tpRes?.msg} price=${tpPrice}`);
 
         if (!slOk || !tpOk) {
           // SL/TP falharam — logar mas NÃO fechar
