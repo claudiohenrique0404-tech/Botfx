@@ -188,7 +188,9 @@ module.exports = async (req, res) => {
         marginMode: 'isolated', side, tradeSide: 'open',
         orderType: 'market', size: (() => {
           const raw = Math.abs(p.quantity);
-          return raw > 1 ? String(Math.floor(raw)) : String(parseFloat(raw.toFixed(3)));
+          const finalSize = raw > 1 ? Math.floor(raw) : parseFloat(raw.toFixed(3));
+          p._finalSize = finalSize; // guardar para usar no SL/TP
+          return String(finalSize);
         })(),
       });
 
@@ -242,10 +244,11 @@ module.exports = async (req, res) => {
         // Tentar SL/TP com diferentes precisões de size (checkScale varia por símbolo)
         // Tenta 0 decimais primeiro (mais compatível), depois 1 decimal
         const tryTpsl = async (planType, triggerPrice) => {
+          const baseQty = p._finalSize || Math.abs(p.quantity);
           const sizes = [
-            String(Math.floor(Math.abs(p.quantity))),                    // inteiro limpo: ex 61
-            String(parseFloat(Math.abs(p.quantity).toFixed(1))),         // 1 decimal limpo: ex 1.7
-            String(parseFloat(Math.abs(p.quantity).toFixed(2))),         // 2 decimais: ex 1.69
+            String(Math.floor(baseQty)),                    // inteiro limpo: ex 61
+            String(parseFloat(baseQty.toFixed(1))),         // 1 decimal limpo: ex 1.7
+            String(parseFloat(baseQty.toFixed(2))),         // 2 decimais: ex 1.69
           ];
           for (const sz of sizes) {
             const res = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
@@ -296,7 +299,10 @@ module.exports = async (req, res) => {
         side:        p.holdSide === 'long' ? 'sell' : 'buy',
         tradeSide:   'close',
         orderType:   'market',
-        size:        String(Math.abs(parseFloat(p.quantity))),
+        size:        (() => {
+          const raw = Math.abs(parseFloat(p.quantity));
+          return raw > 1 ? String(Math.floor(raw)) : String(parseFloat(raw.toFixed(3)));
+        })(),
       });
       console.log(`💰 PARTIAL CLOSE ${p.symbol} qty:${p.quantity}`);
       return res.json(d);
