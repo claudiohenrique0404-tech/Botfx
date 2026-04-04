@@ -104,8 +104,11 @@ function analyzeBots(candles, candles5m) {
 
   // Threshold combinado: score mínimo E margem sobre o adversário
   const diff = Math.abs(buy - sell);
-  if (buy  > sell && buy  > 0.60 && diff > 0.15) return { side: 'BUY',  bots: used, buy, sell, regime };
-  if (sell > buy  && sell > 0.60 && diff > 0.15) return { side: 'SELL', bots: used, buy, sell, regime };
+
+  // Em VOLATILE exige confiança mínima de 0.70 — mercado caótico requer sinal mais forte
+  const minConf = regime === 'VOLATILE' ? 0.70 : 0.60;
+  if (buy  > sell && buy  > minConf && diff > 0.15) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (sell > buy  && sell > minConf && diff > 0.15) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
@@ -357,7 +360,7 @@ module.exports = async function runBot() {
 
       // Cooldown: evitar retentar símbolo que acabou de abrir/falhar
       const symState = TRAIL_STATE[sym];
-      if (symState?.lastOpen && Date.now() - symState.lastOpen < 60000) {
+      if (symState?.lastOpen && Date.now() - symState.lastOpen < 120000) {
         log(`⏳ ${sym} em cooldown`);
         continue;
       }
