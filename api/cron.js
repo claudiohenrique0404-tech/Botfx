@@ -489,7 +489,8 @@ module.exports = async function runBot() {
           symbol: sym,
           holdSide: decision.side === 'BUY' ? 'long' : 'short',
         });
-        delete TRAIL_STATE[sym];
+        // Cooldown de 15min — evita loop infinito de open→close→open
+        TRAIL_STATE[sym] = { lastOpen: Date.now() + 14 * 60 * 1000 };
         persistTrailState();
         continue;
       }
