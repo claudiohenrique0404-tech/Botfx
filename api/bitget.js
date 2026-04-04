@@ -1,4 +1,4 @@
-const { createHmac } = require('crypto');
+const { createHmac } = req('crypto');
 const fetch = global.fetch || require('node-fetch');
 
 const BASE = 'https://api.bitget.com';
