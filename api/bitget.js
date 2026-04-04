@@ -6,7 +6,7 @@ const BASE = 'https://api.bitget.com';
 // ===== SETTINGS =====
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
-    active: true,
+    active: false,
     risk: 1,
     lev: 3,
     symbols: [
