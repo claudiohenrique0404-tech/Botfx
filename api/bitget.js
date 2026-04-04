@@ -1,4 +1,4 @@
-const { createHmac } = req('crypto');
+const { createHmac } = require('crypto');
 const fetch = global.fetch || require('node-fetch');
 
 const BASE = 'https://api.bitget.com';
@@ -6,9 +6,9 @@ const BASE = 'https://api.bitget.com';
 // ===== SETTINGS =====
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
-    active: false,
+    active: true,
     risk: 1,
-    lev: 3,
+    lev: 5,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
       'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT',
@@ -237,7 +237,7 @@ module.exports = async (req, res) => {
           symbol: sym, productType: pt, marginCoin: 'USDT',
           holdSide, triggerType: 'mark_price',
           executePrice: '0',
-          size: String(Math.abs(p.quantity)), // obrigatório pela API Bitget v2
+          size: String(Math.round(Math.abs(p.quantity) * 10) / 10), // arredondado a 1 decimal (checkScale=1)
         };
 
         // Delay extra — Bitget precisa de reconhecer a posição antes de aceitar SL/TP
