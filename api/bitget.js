@@ -186,7 +186,10 @@ module.exports = async (req, res) => {
       const orderRes = await bg('POST', '/api/v2/mix/order/place-order', {
         symbol: sym, productType: pt, marginCoin: 'USDT',
         marginMode: 'isolated', side, tradeSide: 'open',
-        orderType: 'market', size: String(Math.abs(p.quantity)),
+        orderType: 'market', size: (() => {
+          const raw = Math.abs(p.quantity);
+          return raw > 1 ? String(Math.floor(raw)) : String(parseFloat(raw.toFixed(3)));
+        })(),
       });
 
       if (!orderRes?.data?.orderId) {
@@ -240,8 +243,9 @@ module.exports = async (req, res) => {
         // Tenta 0 decimais primeiro (mais compatível), depois 1 decimal
         const tryTpsl = async (planType, triggerPrice) => {
           const sizes = [
-            String(Math.round(Math.abs(p.quantity))),          // 0 decimais: ex 61
-            String(Math.round(Math.abs(p.quantity) * 10) / 10), // 1 decimal: ex 1.7
+            String(Math.floor(Math.abs(p.quantity))),                    // inteiro limpo: ex 61
+            String(parseFloat(Math.abs(p.quantity).toFixed(1))),         // 1 decimal limpo: ex 1.7
+            String(parseFloat(Math.abs(p.quantity).toFixed(2))),         // 2 decimais: ex 1.69
           ];
           for (const sz of sizes) {
             const res = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
