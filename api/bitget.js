@@ -6,7 +6,7 @@ const BASE = 'https://api.bitget.com';
 // ===== SETTINGS =====
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
-    active: false,
+    active: true,
     risk: 1,
     lev: 5,
     symbols: [
@@ -241,29 +241,39 @@ module.exports = async (req, res) => {
         // Delay extra — Bitget precisa de reconhecer a posição antes de aceitar SL/TP
         await new Promise(r => setTimeout(r, 800));
 
-        // Tentar SL/TP com diferentes precisões de size (checkScale varia por símbolo)
-        // Tenta 0 decimais primeiro (mais compatível), depois 1 decimal
+        // Retry adaptativo: testa múltiplas precisões de size E de preço
+        // Bitget exige checkScale específico por símbolo — desconhecido a priori
         const tryTpsl = async (planType, triggerPrice) => {
           const baseQty = p._finalSize || Math.abs(p.quantity);
           const sizes = [
-            String(Math.floor(baseQty)),                    // inteiro limpo: ex 61
-            String(parseFloat(baseQty.toFixed(1))),         // 1 decimal limpo: ex 1.7
+            String(Math.floor(baseQty)),                    // inteiro: ex 62
+            String(parseFloat(baseQty.toFixed(1))),         // 1 decimal: ex 1.7
             String(parseFloat(baseQty.toFixed(2))),         // 2 decimais: ex 1.69
           ];
+          const priceDps = [2, 3, 4, 5, 6]; // precisões do trigger price a testar
+
           for (const sz of sizes) {
-            const res = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-              symbol: sym, productType: pt, marginCoin: 'USDT',
-              holdSide, triggerType: 'mark_price',
-              executePrice: '0', size: sz,
-              planType, triggerPrice: String(triggerPrice),
-            }).catch(e => ({ code: 'ERR', msg: e.message }));
-            if (res && res.code === '00000') {
-              console.log(`✅ ${planType} OK size=${sz}`);
-              return res;
+            if (sz === '0' || sz === 'NaN') continue;
+            for (const dp of priceDps) {
+              const pr = String(parseFloat(triggerPrice.toFixed(dp)));
+              const res = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+                symbol: sym, productType: pt, marginCoin: 'USDT',
+                holdSide, triggerType: 'mark_price',
+                executePrice: '0', size: sz,
+                planType, triggerPrice: pr,
+              }).catch(e => ({ code: 'ERR', msg: e.message }));
+              if (res && res.code === '00000') {
+                console.log(`✅ ${planType} OK size=${sz} price=${pr}`);
+                return res;
+              }
+              // Só logar o último erro de cada size para não spammar
+              if (dp === priceDps[priceDps.length - 1]) {
+                console.error(`❌ ${planType} FAIL size=${sz}: code=${res?.code} msg=${res?.msg}`);
+              }
+              await new Promise(r => setTimeout(r, 80));
             }
-            console.error(`❌ ${planType} FAIL size=${sz}: code=${res?.code} msg=${res?.msg}`);
           }
-          return { code: 'ERR', msg: 'all sizes failed' };
+          return { code: 'ERR', msg: 'all size+price combinations failed' };
         };
 
         const slRes = await tryTpsl('loss_plan', slPrice);
