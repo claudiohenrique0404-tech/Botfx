@@ -9,7 +9,7 @@ if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
     active: true,
     risk: 1,
-    lev: 10,
+    lev: 5,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
       'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT',
