@@ -238,22 +238,26 @@ module.exports = async function runScalper() {
     let bestSym    = null;
     let bestPrice  = 0;
     let bestCandles = null;
+    const scanInfo = []; // resumo por símbolo
 
     for (let i = 0; i < candidates.length; i++) {
       const sym = candidates[i];
+      const short = sym.replace('USDT', '');
       const candles = candleResults[i].status === 'fulfilled' ? candleResults[i].value : null;
-      if (!candles || candles.length < 25) continue;
+      if (!candles || candles.length < 25) { scanInfo.push(`${short}:no_data`); continue; }
 
       const closes = candles.map(c => c.c).filter(Boolean);
       const price = closes.at(-1);
-      if (!price || price <= 0) continue;
+      if (!price || price <= 0) { scanInfo.push(`${short}:bad_price`); continue; }
 
-      if (!SCALP.scalpFilter(closes)) continue;
+      if (!SCALP.scalpFilter(closes)) { scanInfo.push(`${short}:filtered`); continue; }
 
       const signal = SCALP.analyzeScalp(candles);
-      if (!signal || signal.score < MIN_SCORE) continue;
+      if (!signal) { scanInfo.push(`${short}:0bots`); continue; }
+      if (signal.score < MIN_SCORE) { scanInfo.push(`${short}:${signal.side[0]}${signal.score.toFixed(1)}↓`); continue; }
 
-      // Escolher o sinal mais forte entre todos os símbolos
+      scanInfo.push(`${short}:${signal.side[0]}${signal.score.toFixed(1)}✓`);
+
       if (!bestSignal || signal.score > bestSignal.score) {
         bestSignal  = signal;
         bestSym     = sym;
@@ -262,7 +266,9 @@ module.exports = async function runScalper() {
       }
     }
 
-    if (!bestSignal) return; // sem sinais — ciclo silencioso
+    log(`🔍 ${scanInfo.join(' | ')}`);
+
+    if (!bestSignal) return;
 
     log(`⚡ ${bestSignal.side} ${bestSym} score:${bestSignal.score.toFixed(2)} [${bestSignal.bots.join(',')}]`);
 
