@@ -1,5 +1,6 @@
 const { createHmac } = require('crypto');
 const fetch = global.fetch || require('node-fetch');
+const { formatSize, formatPrice } = require('./contracts');
 
 const BASE = 'https://api.bitget.com';
 
@@ -91,11 +92,13 @@ module.exports = async (req, res) => {
     // ===== BALANCE =====
     if (action === 'balance') {
       const d = await bg('GET', '/api/v2/mix/account/accounts?productType=USDT-FUTURES');
-      // Normalizar para expor usdtEquity como available
-      // usdtEquity = equity real (inclui margem usada + PnL aberto)
+      // Expor ambos campos separados:
+      //   equity    → total (com unrealized PnL) → para daily PnL e kill switch
+      //   available → margem livre → para position sizing
       const data = (d.data || []).map(acc => ({
         ...acc,
-        available: acc.usdtEquity || acc.crossedUnrealizedPL || acc.available,
+        equity:    parseFloat(acc.usdtEquity || 0),
+        available: parseFloat(acc.available  || 0),
       }));
       return res.json(data);
     }
@@ -124,8 +127,6 @@ module.exports = async (req, res) => {
         return res.json([]);
       }
       // Bitget history-candles devolve newest-first — inverter para oldest-first
-      // Todos os indicadores esperam [oldest ... newest] com .at(-1) = current
-      // Normalizar para objetos {ts,o,h,l,c,v} para compatibilidade total
       const raw = (d.data || []).reverse();
       const normalized = raw.map(c => ({
         ts: parseFloat(c[0]),
@@ -160,7 +161,7 @@ module.exports = async (req, res) => {
 
       await new Promise(r => setTimeout(r, 200));
 
-      // 2. Set leverage — aborta se falhar
+      // 2. Set leverage
       let levOk = false;
       const lev1 = await bg('POST', '/api/v2/mix/account/set-leverage', {
         symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev, holdSide,
@@ -168,7 +169,6 @@ module.exports = async (req, res) => {
       if (!lev1.code || lev1.code === '00000') {
         levOk = true;
       } else {
-        // retry sem holdSide
         const lev2 = await bg('POST', '/api/v2/mix/account/set-leverage', {
           symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev,
         });
@@ -182,16 +182,22 @@ module.exports = async (req, res) => {
 
       await new Promise(r => setTimeout(r, 300));
 
-      // 3. Abrir ordem market
+      // 3. Formatar size com contract specs (precisão exacta — sem brute-force)
+      const rawQty = Math.abs(parseFloat(p.quantity));
+      const finalSize = formatSize(sym, rawQty);
+
+      if (parseFloat(finalSize) <= 0) {
+        return res.status(400).json({ code: 'SIZE_ERR', msg: `Size ${rawQty} truncado a 0 para ${sym}` });
+      }
+
+      // Guardar para reutilizar no SL/TP
+      p._finalSize = parseFloat(finalSize);
+
+      // 4. Abrir ordem market
       const orderRes = await bg('POST', '/api/v2/mix/order/place-order', {
         symbol: sym, productType: pt, marginCoin: 'USDT',
         marginMode: 'isolated', side, tradeSide: 'open',
-        orderType: 'market', size: (() => {
-          const raw = Math.abs(p.quantity);
-          const finalSize = raw > 1 ? Math.floor(raw) : parseFloat(raw.toFixed(3));
-          p._finalSize = finalSize; // guardar para usar no SL/TP
-          return String(finalSize);
-        })(),
+        orderType: 'market', size: finalSize,
       });
 
       if (!orderRes?.data?.orderId) {
@@ -199,12 +205,11 @@ module.exports = async (req, res) => {
         return res.json(orderRes);
       }
 
-      console.log(`✅ ORDER ${side} ${sym} qty:${p.quantity} ${lev}x`);
+      console.log(`✅ ORDER ${side} ${sym} size:${finalSize} ${lev}x`);
 
       await new Promise(r => setTimeout(r, 600));
 
-      // 4. Buscar preço real de execução — evita SL/TP calculados sobre preço de candle desactualizado
-      // O preço dos candles pode diferir significativamente do preço real de execução
+      // 5. Buscar preço real de execução
       let execPrice = 0;
       try {
         const orderDetail = await bg('GET', `/api/v2/mix/order/detail?symbol=${sym}&productType=${pt}&orderId=${orderRes.data.orderId}`);
@@ -217,90 +222,68 @@ module.exports = async (req, res) => {
         console.log('⚠️ Não foi possível obter preço de execução:', e.message);
       }
 
-      // Fallback para preço do candle se não conseguiu o preço real
       const price = execPrice > 0 ? execPrice : parseFloat(p.price || 0);
-      if (price > 0) {
-        const dp = price > 10000 ? 1 : price > 100 ? 2 : price > 1 ? 4 : 6;
 
-        const slPct = 0.006; // 0.6% — melhor R/R
-        // TP dinâmico baseado na confiança do sinal
+      if (price > 0) {
+        const slPct = 0.006; // 0.6%
         const conf = parseFloat(p.confidence || 0.6);
-        const tpPct = conf > 0.75 ? 0.022   // alta confiança → 2.2%
-                    : conf > 0.65 ? 0.016   // média → 1.6%
-                    :               0.012;  // baixa → 1.2%
+        const tpPct = conf > 0.75 ? 0.022 : conf > 0.65 ? 0.016 : 0.012;
         console.log(`📐 TP dinâmico: ${(tpPct*100).toFixed(1)}% (conf:${conf.toFixed(2)})`);
 
-        const slPrice = p.side === 'BUY'
-          ? parseFloat((price * (1 - slPct)).toFixed(dp))
-          : parseFloat((price * (1 + slPct)).toFixed(dp));
+        const slRaw = p.side === 'BUY' ? price * (1 - slPct) : price * (1 + slPct);
+        const tpRaw = p.side === 'BUY' ? price * (1 + tpPct) : price * (1 - tpPct);
 
-        const tpPrice = p.side === 'BUY'
-          ? parseFloat((price * (1 + tpPct)).toFixed(dp))
-          : parseFloat((price * (1 - tpPct)).toFixed(dp));
+        // Formatar com precisão exacta do contrato — 1 chamada, sem loops
+        const slPriceFmt = formatPrice(sym, slRaw);
+        const tpPriceFmt = formatPrice(sym, tpRaw);
 
-        // Delay extra — Bitget precisa de reconhecer a posição antes de aceitar SL/TP
         await new Promise(r => setTimeout(r, 800));
 
-        // Retry adaptativo: testa múltiplas precisões de size E de preço
-        // Bitget exige checkScale específico por símbolo — desconhecido a priori
-        const tryTpsl = async (planType, triggerPrice) => {
-          const baseQty = p._finalSize || Math.abs(p.quantity);
+        // 6. Colocar SL — chamada directa + fallback sem size
+        const placeTpslDirect = async (planType, triggerPrice) => {
+          const r1 = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+            symbol: sym, productType: pt, marginCoin: 'USDT',
+            holdSide, triggerType: 'mark_price',
+            executePrice: '0', size: finalSize,
+            planType, triggerPrice,
+          }).catch(e => ({ code: 'ERR', msg: e.message }));
 
-          // TRUNCAR (não arredondar) — evita size > posição real
-          // Ex: 0.025.toFixed(2) = "0.03" (arredonda para cima → rejeita)
-          //     truncate(0.025, 2) = "0.02" (trunca → seguro)
-          const truncate = (n, dp) => {
-            const factor = Math.pow(10, dp);
-            return (Math.floor(n * factor) / factor).toFixed(dp);
-          };
-
-          const sizesRaw = [0, 1, 2, 3, 4]
-            .map(dp => truncate(baseQty, dp))
-            .filter(s => parseFloat(s) > 0)
-            .filter((s, i, arr) => arr.indexOf(s) === i); // deduplicar
-
-          // Usar .toFixed(dp) directamente para preço — preserva zeros finais
-          // Ex: (82.1104).toFixed(3) = "82.110" ✓  (Bitget aceita checkScale=3)
-          //     String(parseFloat(...)) = "82.11" ✗  (remove zero final)
-          const priceDps = [1, 2, 3, 4, 5, 6];
-
-          for (const sz of sizesRaw) {
-            for (const dp of priceDps) {
-              const pr = triggerPrice.toFixed(dp);
-              const res = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-                symbol: sym, productType: pt, marginCoin: 'USDT',
-                holdSide, triggerType: 'mark_price',
-                executePrice: '0', size: sz,
-                planType, triggerPrice: pr,
-              }).catch(e => ({ code: 'ERR', msg: e.message }));
-              if (res && res.code === '00000') {
-                console.log(`✅ ${planType} OK size=${sz} price=${pr}`);
-                return res;
-              }
-              await new Promise(r => setTimeout(r, 60));
-            }
-            console.error(`❌ ${planType} FAIL size=${sz} (todas as precisões de preço falharam)`);
+          if (r1 && r1.code === '00000') {
+            console.log(`✅ ${planType} OK size=${finalSize} price=${triggerPrice}`);
+            return r1;
           }
-          return { code: 'ERR', msg: 'all size+price combinations failed' };
+
+          // Fallback: sem size (Bitget aplica ao total da posição)
+          console.log(`⚠️ ${planType} falhou size=${finalSize}: ${r1?.msg} — retry sem size`);
+          const r2 = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+            symbol: sym, productType: pt, marginCoin: 'USDT',
+            holdSide, triggerType: 'mark_price',
+            executePrice: '0', planType, triggerPrice,
+          }).catch(e => ({ code: 'ERR', msg: e.message }));
+
+          if (r2 && r2.code === '00000') {
+            console.log(`✅ ${planType} OK (sem size) price=${triggerPrice}`);
+            return r2;
+          }
+
+          console.error(`❌ ${planType} FAIL: ${r2?.msg}`);
+          return r2;
         };
 
-        const slRes = await tryTpsl('loss_plan', slPrice);
+        const slRes = await placeTpslDirect('loss_plan', slPriceFmt);
         await new Promise(r => setTimeout(r, 300));
-        const tpRes = await tryTpsl('profit_plan', tpPrice);
+        const tpRes = await placeTpslDirect('profit_plan', tpPriceFmt);
 
         const slOk = slRes && slRes.code === '00000';
         const tpOk = tpRes && tpRes.code === '00000';
 
+        if (slOk) console.log(`🛡️ SL confirmado: ${slPriceFmt}`);
+        if (tpOk) console.log(`🎯 TP confirmado: ${tpPriceFmt}`);
+
         if (!slOk || !tpOk) {
-          // SL/TP falharam — logar mas NÃO fechar
-          // O loop do cron gere SL/TP manualmente como fallback
           console.error(`⚠️ SL/TP parcial ${sym} (SL:${slOk} TP:${tpOk}) — posição mantida`);
-          // Retornar sucesso com aviso — a posição está aberta
           return res.json({ code: '00000', data: orderRes.data, warning: 'SL/TP parcial' });
         }
-
-        console.log(`🛡️ SL confirmado: ${slPrice}`);
-        console.log(`🎯 TP confirmado: ${tpPrice}`);
       } else {
         console.log('⚠️ price não enviado — SL/TP não definidos');
       }
@@ -310,6 +293,14 @@ module.exports = async (req, res) => {
 
     // ===== PARTIAL CLOSE (fechar % de uma posição) =====
     if (action === 'partialClose') {
+      const rawQty = Math.abs(parseFloat(p.quantity));
+      const size = formatSize(p.symbol, rawQty);
+
+      if (parseFloat(size) <= 0) {
+        console.error(`⚠️ PARTIAL CLOSE ${p.symbol} size truncado a 0`);
+        return res.json({ code: 'SIZE_ERR', msg: 'size truncado a 0' });
+      }
+
       const d = await bg('POST', '/api/v2/mix/order/place-order', {
         symbol:      p.symbol,
         productType: 'USDT-FUTURES',
@@ -317,12 +308,9 @@ module.exports = async (req, res) => {
         side:        p.holdSide === 'long' ? 'sell' : 'buy',
         tradeSide:   'close',
         orderType:   'market',
-        size:        (() => {
-          const raw = Math.abs(parseFloat(p.quantity));
-          return raw > 1 ? String(Math.floor(raw)) : String(parseFloat(raw.toFixed(3)));
-        })(),
+        size,
       });
-      console.log(`💰 PARTIAL CLOSE ${p.symbol} qty:${p.quantity}`);
+      console.log(`💰 PARTIAL CLOSE ${p.symbol} size:${size}`);
       return res.json(d);
     }
 
@@ -342,24 +330,34 @@ module.exports = async (req, res) => {
 
     // ===== PLACE TPSL (direto, para breakeven) =====
     if (action === 'placeTpsl') {
+      const sym = p.symbol;
+      // Usar contract specs para precisão exacta
+      const size  = formatSize(sym, parseFloat(p.size));
+      const price = formatPrice(sym, parseFloat(p.triggerPrice));
+
       const d = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
-        symbol:       p.symbol,
+        symbol:       sym,
         productType:  p.productType || 'USDT-FUTURES',
         marginCoin:   'USDT',
         planType:     p.planType,
         holdSide:     p.holdSide,
-        triggerPrice: String(p.triggerPrice),
+        triggerPrice: price,
         triggerType:  'mark_price',
         executePrice: '0',
-        size:         String(p.size),
+        size,
       });
+
+      if (d.code !== '00000') {
+        console.error(`⚠️ placeTpsl ${sym} ${p.planType} falhou: ${d.msg} (size=${size} price=${price})`);
+      }
+
       return res.json(d);
     }
 
     // ===== CLOSE POSITION =====
     if (action === 'close') {
       const sym      = p.symbol;
-      const holdSide = p.holdSide; // 'long' ou 'short' — obrigatório
+      const holdSide = p.holdSide;
 
       if (!sym || !holdSide)
         return res.status(400).json({ error: 'symbol e holdSide obrigatorios' });
