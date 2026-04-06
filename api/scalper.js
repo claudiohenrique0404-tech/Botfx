@@ -10,7 +10,7 @@ const { getMinQty } = require('./contracts');
 // CONFIG
 // ══════════════════════════════════════════════════════════════
 const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
-const LEVERAGE    = 20;
+const LEVERAGE    = 5;
 const MAX_POS     = 1;
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
 const KILL_SWITCH = -4;         // % daily loss
@@ -293,28 +293,31 @@ module.exports = async function runScalper() {
     if (qty * price < 15) qty = Math.ceil((15 / price) * 10000) / 10000;
     if (qty < symMinQty) qty = symMinQty;
 
-    const data = await callApi({
-      action: 'order', symbol: bestSym, side: bestSignal.side,
-      quantity: qty.toFixed(4), price,
-      confidence: bestSignal.score,
-      slPct: bestSignal.slPct,
-      tpPct: bestSignal.tpPct,
-      fast: true, // skip margin/leverage (pré-configurado no arranque)
-    });
-
-    if (!data || data.code !== '00000') {
-      log(`❌ ${bestSym}: ${data ? JSON.stringify(data).slice(0, 80) : 'timeout'}`);
-      return;
-    }
-
-    log(`🚀 SCALP ${bestSignal.side} ${bestSym} @ ${price} qty:${qty}`);
-
+    // Bloquear símbolo ANTES da order — previne double entry durante SL/TP
     STATE[bestSym] = {
       lastOpen: Date.now(),
       bots: bestSignal.bots,
       openTime: Date.now(),
       slPct: bestSignal.slPct,
     };
+
+    const data = await callApi({
+      action: 'order', symbol: bestSym, side: bestSignal.side,
+      quantity: qty.toFixed(4), price,
+      confidence: bestSignal.score,
+      slPct: bestSignal.slPct,
+      tpPct: bestSignal.tpPct,
+      fast: true,
+    });
+
+    if (!data || data.code !== '00000') {
+      log(`❌ ${bestSym}: ${data ? JSON.stringify(data).slice(0, 80) : 'timeout'}`);
+      // Desbloquear — order falhou, símbolo fica livre
+      delete STATE[bestSym];
+      return;
+    }
+
+    log(`🚀 SCALP ${bestSignal.side} ${bestSym} @ ${price} qty:${qty}`);
     await saveState();
 
     if (data.warning) {
