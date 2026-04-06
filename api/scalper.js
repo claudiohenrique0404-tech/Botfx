@@ -1,5 +1,5 @@
-// scalper.js — orquestrador de scalping puro
-// Independente do cron.js — estado próprio, Redis prefixo scalp:
+// scalper.js v3 — orquestrador de scalping
+// VWAP, ATR dinâmico, candle patterns, filtro horário, confirmação 5m
 const SCALP = require('./scalp-strategies');
 const BRAIN = require('./brain');
 const bitgetHandler = require('./bitget');
@@ -7,21 +7,19 @@ const redis = require('./redis');
 const { getMinQty } = require('./contracts');
 
 // ══════════════════════════════════════════════════════════════
-// CONFIG SCALPER
+// CONFIG
 // ══════════════════════════════════════════════════════════════
 const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
 const LEVERAGE    = 5;
-const SL_PCT      = 0.0020;     // 0.20%
-const TP_PCT      = 0.0050;     // 0.50% (~0.38% líquido)
-const MAX_POS     = 1;          // 1 scalp de cada vez — foco total
+const MAX_POS     = 1;
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
-const TIME_STOP   = 6 * 60_000; // 6 min — dar tempo para TP de 0.50%
 const KILL_SWITCH = -4;         // % daily loss
-const MIN_SCORE   = 1.00;       // score mínimo (soma de 2+ bots concordantes)
+const MIN_SCORE   = 1.00;
+// SL/TP agora dinâmicos (ATR-based) — vêm do analyzeScalp
 
 // ── State ────────────────────────────────────────────────────
 let START_EQUITY = null;
-const STATE = {};          // trailing/cooldown por símbolo
+const STATE = {};
 let PREV_POSITIONS = [];
 if (!global.SCALP_LOGS) global.SCALP_LOGS = [];
 const LOGS = global.SCALP_LOGS;
@@ -35,7 +33,7 @@ function log(msg) {
   if (LOGS.length > 200) LOGS.pop();
 }
 
-// ── Redis persistence (scalp: prefix) ────────────────────────
+// ── Redis (scalp: prefix) ────────────────────────────────────
 async function saveState() {
   if (!redis) return;
   try { await redis.set('scalp:state', STATE); } catch {}
@@ -86,7 +84,7 @@ async function saveEquity(eq) {
   } catch {}
 }
 
-// ── Bitget API (direct call, same process) ───────────────────
+// ── Bitget API ───────────────────────────────────────────────
 function callApi(body) {
   const timeout = body.action === 'order' ? 30000 : 10000;
   return new Promise((resolve) => {
@@ -108,19 +106,17 @@ function callApi(body) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// MAIN SCALPER LOOP
+// MAIN SCALPER
 // ══════════════════════════════════════════════════════════════
 module.exports = async function runScalper() {
   try {
     global.lastScalperRun = Date.now();
 
-    // Carregar state na primeira execução
     if (!global._scalpStateLoaded) {
       await loadState();
       global._scalpStateLoaded = true;
-      // Scalper usa leverage próprio
       if (global.BOT_SETTINGS) global.BOT_SETTINGS.lev = LEVERAGE;
-      log(`⚡ SCALPER | SL:${(SL_PCT*100).toFixed(2)}% TP:${(TP_PCT*100).toFixed(2)}% Lev:${LEVERAGE}x MaxPos:${MAX_POS} Syms:${SYMBOLS.join(',')}`);
+      log(`⚡ SCALPER v3 | Lev:${LEVERAGE}x | ATR SL/TP | VWAP+Patterns | 5m confirm | MaxPos:${MAX_POS}`);
     }
 
     // ── Balance + Positions em paralelo ──
@@ -132,26 +128,22 @@ module.exports = async function runScalper() {
     if (!balData?.[0]) { log('❌ balance'); return; }
     const equity    = parseFloat(balData[0].equity    || 0);
     const available = parseFloat(balData[0].available  || 0);
-    if (equity <= 0) { log('❌ equity 0'); return; }
+    if (equity <= 0) return;
 
     if (!START_EQUITY) START_EQUITY = equity;
     const pnlDay = ((equity - START_EQUITY) / START_EQUITY) * 100;
-
     if (pnlDay <= KILL_SWITCH) { log('🛑 KILL SWITCH'); return; }
 
     const positions = Array.isArray(posData) ? posData : [];
-
-    // Filtrar só posições dos símbolos do scalper
     const myPositions = positions.filter(p => SYMBOLS.includes(p.symbol));
 
-    // ── Gerir posições abertas ──
+    // ── Gerir posições (só SL fallback, sem time stop) ──
     for (const pos of myPositions) {
       const sym      = pos.symbol;
       const holdSide = pos.holdSide;
       const entry    = parseFloat(pos.openPriceAvg || 0);
       const current  = parseFloat(pos.markPrice || 0);
-      const size     = parseFloat(pos.total || 0);
-      if (!entry || !current || !size) continue;
+      if (!entry || !current) continue;
 
       const pnl = holdSide === 'long'
         ? ((current - entry) / entry) * 100
@@ -164,36 +156,25 @@ module.exports = async function runScalper() {
 
       const timeOpen = Date.now() - STATE[sym].openTime;
 
-      // Log posição a cada 30s (não a cada 2s — sem time stop, não precisa)
+      // Log a cada 30s
       if (!STATE[sym].lastLog || Date.now() - STATE[sym].lastLog > 30000) {
         log(`📊 ${sym} ${holdSide} PnL:${pnl.toFixed(3)}% t:${Math.round(timeOpen/1000)}s`);
         STATE[sym].lastLog = Date.now();
       }
 
-      let shouldClose = false;
-      let reason = '';
-
-      // SL fallback (safety net — caso Bitget SL não tenha disparado)
-      if (pnl <= -(SL_PCT * 100 + 0.05)) {
-        shouldClose = true;
-        reason = `SL fallback ${pnl.toFixed(2)}%`;
-      }
-      // Sem time stop — SL/TP na Bitget gerem a saída
-      // Time stop fechava trades com micro-lucro que não cobria fees
-
-      if (shouldClose) {
+      // SL fallback apenas (SL/TP na Bitget faz o resto)
+      const slFallback = STATE[sym].slPct ? (STATE[sym].slPct * 100 + 0.05) : 0.25;
+      if (pnl <= -slFallback) {
         await callApi({ action: 'close', symbol: sym, holdSide });
-        log(pnl > 0 ? `✅ ${reason} ${sym}` : `🛑 ${reason} ${sym}`);
-
+        log(`🛑 SL fallback ${pnl.toFixed(2)}% ${sym}`);
         const trade = await setTradePnL(sym, pnl);
         if (trade?.bots) { for (const b of trade.bots) BRAIN.updateBot(b, pnl); }
-
         STATE[sym] = { lastOpen: Date.now() };
         await saveState();
       }
     }
 
-    // ── Fechos externos (Bitget SL/TP hit) ──
+    // ── Fechos externos (SL/TP hit na Bitget) ──
     for (const prev of PREV_POSITIONS) {
       if (!SYMBOLS.includes(prev.symbol)) continue;
       const stillOpen = myPositions.find(p => p.symbol === prev.symbol && p.holdSide === prev.holdSide);
@@ -207,7 +188,6 @@ module.exports = async function runScalper() {
         else { const mark = parseFloat(prev.markPrice || entry); pnl = entry > 0 ? ((isLong ? mark - entry : entry - mark) / entry * 100) : 0; }
 
         log(`📕 ${prev.symbol} SL/TP hit PnL:${pnl.toFixed(2)}%`);
-
         const trade = await setTradePnL(prev.symbol, pnl);
         if (trade?.bots) {
           for (const b of trade.bots) BRAIN.updateBot(b, pnl);
@@ -220,9 +200,9 @@ module.exports = async function runScalper() {
     PREV_POSITIONS = myPositions.slice();
 
     // ── Procurar scalps ──
-    if (myPositions.length >= MAX_POS) return; // silencioso — ciclo rápido
+    if (myPositions.length >= MAX_POS) return;
 
-    // Filtrar símbolos disponíveis (sem posição aberta, sem cooldown)
+    // Filtrar candidatos
     const candidates = SYMBOLS.filter(sym => {
       if (myPositions.find(p => p.symbol === sym)) return false;
       if (STATE[sym]?.lastOpen && Date.now() - STATE[sym].lastOpen < COOLDOWN_MS) return false;
@@ -231,41 +211,42 @@ module.exports = async function runScalper() {
 
     if (candidates.length === 0) return;
 
-    // Fetch candles de TODOS os candidatos em paralelo — ~200ms em vez de ~600ms
-    const candleResults = await Promise.allSettled(
-      candidates.map(sym => callApi({ action: 'candles', symbol: sym, tf: '1m' }))
-    );
+    // Fetch 1m + 5m candles de todos os candidatos em paralelo
+    const fetches = candidates.flatMap(sym => [
+      callApi({ action: 'candles', symbol: sym, tf: '1m' }),
+      callApi({ action: 'candles', symbol: sym, tf: '5m' }),
+    ]);
+    const results = await Promise.allSettled(fetches);
 
-    // Analisar todos e escolher o melhor sinal
+    // Analisar todos e escolher o melhor
     let bestSignal = null;
     let bestSym    = null;
-    let bestPrice  = 0;
-    let bestCandles = null;
-    const scanInfo = []; // resumo por símbolo
+    const scanInfo = [];
 
     for (let i = 0; i < candidates.length; i++) {
       const sym = candidates[i];
       const short = sym.replace('USDT', '');
-      const candles = candleResults[i].status === 'fulfilled' ? candleResults[i].value : null;
-      if (!candles || candles.length < 25) { scanInfo.push(`${short}:no_data`); continue; }
+      const candles1m = results[i * 2].status === 'fulfilled' ? results[i * 2].value : null;
+      const candles5m = results[i * 2 + 1].status === 'fulfilled' ? results[i * 2 + 1].value : null;
 
-      const closes = candles.map(c => c.c).filter(Boolean);
-      const price = closes.at(-1);
-      if (!price || price <= 0) { scanInfo.push(`${short}:bad_price`); continue; }
+      if (!candles1m || candles1m.length < 20) { scanInfo.push(`${short}:no_data`); continue; }
 
-      if (!SCALP.scalpFilter(closes)) { scanInfo.push(`${short}:filtered`); continue; }
+      if (!SCALP.scalpFilter(candles1m)) { scanInfo.push(`${short}:filtered`); continue; }
 
-      const signal = SCALP.analyzeScalp(candles);
+      const signal = SCALP.analyzeScalp(candles1m, candles5m);
+
       if (!signal) { scanInfo.push(`${short}:0bots`); continue; }
-      if (signal.score < MIN_SCORE) { scanInfo.push(`${short}:${signal.side[0]}${signal.score.toFixed(1)}↓`); continue; }
+      if (signal.skip) { scanInfo.push(`${short}:${signal.reason}`); continue; }
+      if (signal.score < MIN_SCORE) {
+        scanInfo.push(`${short}:${signal.side[0]}${signal.score.toFixed(1)}↓`);
+        continue;
+      }
 
       scanInfo.push(`${short}:${signal.side[0]}${signal.score.toFixed(1)}✓`);
 
       if (!bestSignal || signal.score > bestSignal.score) {
-        bestSignal  = signal;
-        bestSym     = sym;
-        bestPrice   = price;
-        bestCandles = candles;
+        bestSignal = signal;
+        bestSym    = sym;
       }
     }
 
@@ -273,25 +254,27 @@ module.exports = async function runScalper() {
 
     if (!bestSignal) return;
 
-    log(`⚡ ${bestSignal.side} ${bestSym} score:${bestSignal.score.toFixed(2)} [${bestSignal.bots.join(',')}]`);
+    // ── Abrir scalp com SL/TP dinâmico ──
+    log(`⚡ ${bestSignal.side} ${bestSym} score:${bestSignal.score.toFixed(2)} [${bestSignal.bots.join(',')}] SL:${(bestSignal.slPct*100).toFixed(2)}% TP:${(bestSignal.tpPct*100).toFixed(2)}%`);
 
-    // Sizing
     const symMinQty = getMinQty(bestSym);
+    const price = (await callApi({ action: 'candles', symbol: bestSym, tf: '1m' }))?.at(-1)?.c || 0;
+    if (!price) return;
+
     let orderValue = Math.max(15, available * 0.02);
     const cap = available * 0.05;
     if (cap >= 15 && orderValue > cap) orderValue = cap;
 
-    let qty = Math.ceil((orderValue / bestPrice) * 10000) / 10000;
-    if (qty * bestPrice < 15) qty = Math.ceil((15 / bestPrice) * 10000) / 10000;
+    let qty = Math.ceil((orderValue / price) * 10000) / 10000;
+    if (qty * price < 15) qty = Math.ceil((15 / price) * 10000) / 10000;
     if (qty < symMinQty) qty = symMinQty;
 
-    // Order com SL/TP apertados
     const data = await callApi({
       action: 'order', symbol: bestSym, side: bestSignal.side,
-      quantity: qty.toFixed(4), price: bestPrice,
+      quantity: qty.toFixed(4), price,
       confidence: bestSignal.score,
-      slPct: SL_PCT,
-      tpPct: TP_PCT,
+      slPct: bestSignal.slPct,
+      tpPct: bestSignal.tpPct,
     });
 
     if (!data || data.code !== '00000') {
@@ -299,9 +282,14 @@ module.exports = async function runScalper() {
       return;
     }
 
-    log(`🚀 SCALP ${bestSignal.side} ${bestSym} @ ${bestPrice} qty:${qty}`);
+    log(`🚀 SCALP ${bestSignal.side} ${bestSym} @ ${price} qty:${qty}`);
 
-    STATE[bestSym] = { lastOpen: Date.now(), bots: bestSignal.bots, openTime: Date.now() };
+    STATE[bestSym] = {
+      lastOpen: Date.now(),
+      bots: bestSignal.bots,
+      openTime: Date.now(),
+      slPct: bestSignal.slPct,
+    };
     await saveState();
 
     if (data.warning) {
