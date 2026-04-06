@@ -452,8 +452,19 @@ module.exports = async function runBot() {
 
       log(`📐 Size: $${orderValue.toFixed(2)} (regime:${regime} mult:${regimeMult}x)`);
 
+      // Mínimos de qty por símbolo (Bitget Futures)
+      const minQty = {
+        BTCUSDT: 0.001, ETHUSDT: 0.01, BNBUSDT: 0.01,
+        SOLUSDT: 0.1,   XRPUSDT: 1,    ADAUSDT: 1,
+        AVAXUSDT: 0.1,  DOTUSDT: 0.1,  LINKUSDT: 0.1,
+        ATOMUSDT: 0.1,  LTCUSDT: 0.01, UNIUSDT: 0.1,
+      };
+      const symMinQty = minQty[sym] || 0.01;
+
       let qty = Math.ceil((orderValue / price) * 10000) / 10000;
       if (qty * price < 15) qty = Math.ceil((15 / price) * 10000) / 10000;
+      // Garantir qty mínimo da Bitget
+      if (qty < symMinQty) qty = symMinQty;
 
       log(`📊 ${decision.side} conf:${confidence.toFixed(2)} size:${orderValue.toFixed(2)}$ qty:${qty}`);
 
