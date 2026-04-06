@@ -239,8 +239,9 @@ module.exports = async (req, res) => {
 
         await new Promise(r => setTimeout(r, 800));
 
-        // 6. Colocar SL — chamada directa + fallback sem size
+        // 6. Colocar SL — chamada directa + fallbacks para checkScale
         const placeTpslDirect = async (planType, triggerPrice) => {
+          // Tentativa 1: size exacto do contrato
           const r1 = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
             symbol: sym, productType: pt, marginCoin: 'USDT',
             holdSide, triggerType: 'mark_price',
@@ -253,21 +254,41 @@ module.exports = async (req, res) => {
             return r1;
           }
 
-          // Fallback: sem size (Bitget aplica ao total da posição)
-          console.log(`⚠️ ${planType} falhou size=${finalSize}: ${r1?.msg} — retry sem size`);
-          const r2 = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+          // Tentativa 2: size inteiro (checkScale=0 — Bitget TPSL pode exigir inteiros)
+          const intSize = String(Math.floor(parseFloat(finalSize)));
+          if (intSize !== finalSize && parseInt(intSize) > 0) {
+            console.log(`⚠️ ${planType} falhou size=${finalSize}: ${r1?.msg} — retry com inteiro ${intSize}`);
+            const r2 = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
+              symbol: sym, productType: pt, marginCoin: 'USDT',
+              holdSide, triggerType: 'mark_price',
+              executePrice: '0', size: intSize,
+              planType, triggerPrice,
+            }).catch(e => ({ code: 'ERR', msg: e.message }));
+
+            if (r2 && r2.code === '00000') {
+              console.log(`✅ ${planType} OK size=${intSize} (inteiro) price=${triggerPrice}`);
+              return r2;
+            }
+            console.log(`⚠️ ${planType} inteiro falhou: ${r2?.msg}`);
+          } else {
+            console.log(`⚠️ ${planType} falhou size=${finalSize}: ${r1?.msg}`);
+          }
+
+          // Tentativa 3: sem size (Bitget aplica ao total da posição)
+          console.log(`⚠️ ${planType} retry sem size`);
+          const r3 = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
             symbol: sym, productType: pt, marginCoin: 'USDT',
             holdSide, triggerType: 'mark_price',
             executePrice: '0', planType, triggerPrice,
           }).catch(e => ({ code: 'ERR', msg: e.message }));
 
-          if (r2 && r2.code === '00000') {
+          if (r3 && r3.code === '00000') {
             console.log(`✅ ${planType} OK (sem size) price=${triggerPrice}`);
-            return r2;
+            return r3;
           }
 
-          console.error(`❌ ${planType} FAIL: ${r2?.msg}`);
-          return r2;
+          console.error(`❌ ${planType} FAIL total: ${r3?.msg}`);
+          return r3;
         };
 
         const slRes = await placeTpslDirect('loss_plan', slPriceFmt);
