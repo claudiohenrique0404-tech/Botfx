@@ -15,7 +15,7 @@ const SL_PCT      = 0.0020;     // 0.20%
 const TP_PCT      = 0.0050;     // 0.50% (~0.38% líquido)
 const MAX_POS     = 1;          // 1 scalp de cada vez — foco total
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
-const TIME_STOP   = 3 * 60_000; // 3 min max
+const TIME_STOP   = 6 * 60_000; // 6 min — dar tempo para TP de 0.50%
 const KILL_SWITCH = -4;         // % daily loss
 const MIN_SCORE   = 1.00;       // score mínimo (soma de 2+ bots concordantes)
 
@@ -164,21 +164,22 @@ module.exports = async function runScalper() {
 
       const timeOpen = Date.now() - STATE[sym].openTime;
 
-      log(`📊 ${sym} ${holdSide} PnL:${pnl.toFixed(3)}% t:${Math.round(timeOpen/1000)}s`);
+      // Log posição a cada 30s (não a cada 2s — sem time stop, não precisa)
+      if (!STATE[sym].lastLog || Date.now() - STATE[sym].lastLog > 30000) {
+        log(`📊 ${sym} ${holdSide} PnL:${pnl.toFixed(3)}% t:${Math.round(timeOpen/1000)}s`);
+        STATE[sym].lastLog = Date.now();
+      }
 
       let shouldClose = false;
       let reason = '';
 
-      // SL fallback (caso Bitget SL não tenha disparado)
+      // SL fallback (safety net — caso Bitget SL não tenha disparado)
       if (pnl <= -(SL_PCT * 100 + 0.05)) {
         shouldClose = true;
         reason = `SL fallback ${pnl.toFixed(2)}%`;
       }
-      // Time stop: scalp parado — sair com o que tiver
-      else if (timeOpen > TIME_STOP && pnl > -0.10) {
-        shouldClose = true;
-        reason = `TIME ${Math.round(timeOpen/1000)}s PnL:${pnl.toFixed(2)}%`;
-      }
+      // Sem time stop — SL/TP na Bitget gerem a saída
+      // Time stop fechava trades com micro-lucro que não cobria fees
 
       if (shouldClose) {
         await callApi({ action: 'close', symbol: sym, holdSide });
