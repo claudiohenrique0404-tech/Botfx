@@ -110,13 +110,13 @@ function callApi(body) {
 // ══════════════════════════════════════════════════════════════
 module.exports = async function runScalper() {
   try {
-    global.lastScalperRun = Date.now();
-
     if (!global._scalpStateLoaded) {
       await loadState();
       global._scalpStateLoaded = true;
       if (global.BOT_SETTINGS) global.BOT_SETTINGS.lev = LEVERAGE;
-      log(`⚡ SCALPER v3 | Lev:${LEVERAGE}x | ATR SL/TP | VWAP+Patterns | 5m confirm | MaxPos:${MAX_POS}`);
+      // Pré-configurar margin mode + leverage para todos os símbolos
+      await callApi({ action: 'setupSymbols', symbols: SYMBOLS });
+      log(`⚡ SCALPER v3 | Lev:${LEVERAGE}x | ATR SL/TP | VWAP+Patterns | 5m confirm | FAST ORDER`);
     }
 
     // ── Balance + Positions em paralelo ──
@@ -299,6 +299,7 @@ module.exports = async function runScalper() {
       confidence: bestSignal.score,
       slPct: bestSignal.slPct,
       tpPct: bestSignal.tpPct,
+      fast: true, // skip margin/leverage (pré-configurado no arranque)
     });
 
     if (!data || data.code !== '00000') {
@@ -329,5 +330,7 @@ module.exports = async function runScalper() {
 
   } catch (e) {
     log(`🔥 ${e.message}`);
+  } finally {
+    global.lastScalperRun = Date.now(); // watchdog: marca ciclo COMPLETADO
   }
 };
