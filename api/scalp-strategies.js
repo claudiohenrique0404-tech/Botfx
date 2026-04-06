@@ -1,5 +1,5 @@
-// scalp-strategies.js — sinais de scalping para 1m candles
-// Optimizados para entradas rápidas com SL/TP apertados
+// scalp-strategies.js v2 — calibrado para 1m candles reais
+// Thresholds ajustados: BTC move ~0.02-0.05% por vela 1m em mercado normal
 
 function ema(values, period) {
   const k = 2 / (period + 1);
@@ -32,31 +32,37 @@ function stddev(values) {
 }
 
 // ═══ 1. EMA MICRO CROSS (EMA3/EMA8) ═══════════════════════
-// Detecta micro-tendências muito cedo
+// Cross recente OU EMAs a divergir (momentum building)
 function emaCrossBot(closes) {
-  if (closes.length < 20) return null;
+  if (closes.length < 15) return null;
 
   const e3now  = ema(closes, 3);
   const e8now  = ema(closes, 8);
   const e3prev = ema(closes.slice(0, -1), 3);
   const e8prev = ema(closes.slice(0, -1), 8);
 
-  const price = closes.at(-1);
+  const price  = closes.at(-1);
   const spread = Math.abs(e3now - e8now) / price;
 
-  // Cross acabou de acontecer (ou está muito recente)
-  if (e3prev <= e8prev && e3now > e8now && spread > 0.0002) {
-    return { side: 'BUY', confidence: Math.min(0.85, 0.60 + spread * 50), bot: 'emaCross' };
+  // Cross acabou de acontecer
+  if (e3prev <= e8prev && e3now > e8now) {
+    return { side: 'BUY', confidence: Math.min(0.80, 0.55 + spread * 80), bot: 'emaCross' };
   }
-  if (e3prev >= e8prev && e3now < e8now && spread > 0.0002) {
-    return { side: 'SELL', confidence: Math.min(0.85, 0.60 + spread * 50), bot: 'emaCross' };
+  if (e3prev >= e8prev && e3now < e8now) {
+    return { side: 'SELL', confidence: Math.min(0.80, 0.55 + spread * 80), bot: 'emaCross' };
+  }
+
+  // EMAs já cruzadas e a divergir (momentum activo)
+  const prevSpread = Math.abs(e3prev - e8prev) / price;
+  if (spread > prevSpread && spread > 0.00008) {
+    if (e3now > e8now) return { side: 'BUY',  confidence: Math.min(0.70, 0.50 + spread * 60), bot: 'emaCross' };
+    if (e3now < e8now) return { side: 'SELL', confidence: Math.min(0.70, 0.50 + spread * 60), bot: 'emaCross' };
   }
 
   return null;
 }
 
 // ═══ 2. VOLUME BURST ═══════════════════════════════════════
-// Volume spike com direcção clara — indica movimento institucional
 function volumeBurstBot(candles) {
   if (!candles || candles.length < 15) return null;
 
@@ -69,24 +75,24 @@ function volumeBurstBot(candles) {
   const lastVol = vols.at(-1);
   const ratio = avgVol > 0 ? lastVol / avgVol : 0;
 
-  // Volume > 2.5x média — spike significativo
-  if (ratio < 2.5) return null;
+  // 1.5x média já é relevante em 1m
+  if (ratio < 1.5) return null;
 
   const last = candles.at(-1);
   const body = Math.abs(getC(last) - getO(last));
   const price = getC(last);
 
-  // Vela tem de ter corpo real (não doji)
-  if (body / price < 0.0003) return null;
+  // Corpo mínimo muito baixo — quase qualquer vela não-doji
+  if (price > 0 && body / price < 0.00005) return null;
 
   const isBull = getC(last) > getO(last);
-  const conf = Math.min(0.90, 0.60 + (ratio - 2.5) * 0.08);
+  const conf = Math.min(0.85, 0.55 + (ratio - 1.5) * 0.10);
 
   return { side: isBull ? 'BUY' : 'SELL', confidence: conf, bot: 'volumeBurst' };
 }
 
-// ═══ 3. RSI EXTREME BOUNCE ═════════════════════════════════
-// RSI(7) em extremo com vela de reversão — scalp contra-tendência
+// ═══ 3. RSI BOUNCE ═════════════════════════════════════════
+// RSI(7) em extremo — zonas alargadas para 1m
 function rsiBounceBot(closes) {
   if (closes.length < 15) return null;
 
@@ -95,75 +101,75 @@ function rsiBounceBot(closes) {
   const prev = closes.at(-2);
   const move = prev > 0 ? (last - prev) / prev : 0;
 
-  // RSI < 18 + vela bullish = bounce
-  if (rsi < 18 && move > 0.0003) {
-    return { side: 'BUY', confidence: Math.min(0.80, 0.55 + (18 - rsi) / 50), bot: 'rsiBounce' };
+  // RSI < 28 + qualquer movimento bullish
+  if (rsi < 28 && move > 0.00005) {
+    return { side: 'BUY', confidence: Math.min(0.80, 0.50 + (28 - rsi) / 60), bot: 'rsiBounce' };
   }
-  // RSI > 82 + vela bearish = bounce
-  if (rsi > 82 && move < -0.0003) {
-    return { side: 'SELL', confidence: Math.min(0.80, 0.55 + (rsi - 82) / 50), bot: 'rsiBounce' };
+  // RSI > 72 + qualquer movimento bearish
+  if (rsi > 72 && move < -0.00005) {
+    return { side: 'SELL', confidence: Math.min(0.80, 0.50 + (rsi - 72) / 60), bot: 'rsiBounce' };
   }
 
   return null;
 }
 
 // ═══ 4. MOMENTUM SPIKE ═════════════════════════════════════
-// Aceleração de preço nas últimas 3 velas — momentum puro
+// Aceleração de preço — 2 de 3 velas na mesma direcção basta
 function momentumSpikeBot(closes) {
-  if (closes.length < 10) return null;
+  if (closes.length < 8) return null;
 
   const c0 = closes.at(-1);
   const c3 = closes.at(-4);
   if (!c0 || !c3) return null;
 
-  const roc = (c0 - c3) / c3; // rate of change 3 candles
+  const roc = (c0 - c3) / c3;
 
-  // Precisa de movimento mínimo para ser scalp-worthy
-  if (Math.abs(roc) < 0.0015) return null;
+  // 0.06% em 3 velas de 1m = movimento real
+  if (Math.abs(roc) < 0.0006) return null;
 
-  // Consistência: as 3 velas têm de ir na mesma direcção
+  // Pelo menos 2 de 3 velas na mesma direcção
   const c1 = closes.at(-2);
   const c2 = closes.at(-3);
-  const allUp   = c0 > c1 && c1 > c2 && c2 > c3;
-  const allDown = c0 < c1 && c1 < c2 && c2 < c3;
+  const ups   = (c0 > c1 ? 1 : 0) + (c1 > c2 ? 1 : 0) + (c2 > c3 ? 1 : 0);
+  const downs = (c0 < c1 ? 1 : 0) + (c1 < c2 ? 1 : 0) + (c2 < c3 ? 1 : 0);
 
-  if (!allUp && !allDown) return null;
+  if (roc > 0 && ups >= 2) {
+    return { side: 'BUY', confidence: Math.min(0.80, 0.55 + Math.abs(roc) * 40), bot: 'momentumSpike' };
+  }
+  if (roc < 0 && downs >= 2) {
+    return { side: 'SELL', confidence: Math.min(0.80, 0.55 + Math.abs(roc) * 40), bot: 'momentumSpike' };
+  }
 
-  const conf = Math.min(0.85, 0.60 + Math.abs(roc) * 30);
-  return { side: allUp ? 'BUY' : 'SELL', confidence: conf, bot: 'momentumSpike' };
+  return null;
 }
 
-// ═══ 5. BOLLINGER SQUEEZE BREAKOUT ═════════════════════════
-// Volatilidade comprime e depois expande — entrada no breakout
-function squeezeBot(closes) {
-  if (closes.length < 25) return null;
+// ═══ 5. MICRO TREND ════════════════════════════════════════
+// EMA 5/15 alinhadas + preço do lado certo — micro-tendência confirmada
+function microTrendBot(closes) {
+  if (closes.length < 20) return null;
 
-  const recent = closes.slice(-20);
-  const older  = closes.slice(-25, -5);
-
-  const bwRecent = stddev(recent) / (recent.reduce((a, b) => a + b) / recent.length);
-  const bwOlder  = stddev(older) / (older.reduce((a, b) => a + b) / older.length);
-
-  // Squeeze: volatilidade actual > volatilidade anterior (expansão)
-  // Mas a anterior tem de ter sido baixa (squeeze verdadeiro)
-  if (bwOlder > 0.002 || bwRecent < bwOlder * 1.5) return null;
-
+  const e5  = ema(closes, 5);
+  const e15 = ema(closes, 15);
   const price = closes.at(-1);
-  const mean  = recent.reduce((a, b) => a + b) / recent.length;
 
-  // Direcção: preço acima da média = bullish breakout
-  if (price > mean) {
-    return { side: 'BUY', confidence: Math.min(0.80, 0.60 + (bwRecent / bwOlder - 1.5) * 0.2), bot: 'squeeze' };
+  // Preço acima de ambas EMAs + EMAs alinhadas
+  if (price > e5 && e5 > e15) {
+    const strength = (e5 - e15) / price;
+    if (strength > 0.00005) {
+      return { side: 'BUY', confidence: Math.min(0.75, 0.50 + strength * 100), bot: 'microTrend' };
+    }
   }
-  if (price < mean) {
-    return { side: 'SELL', confidence: Math.min(0.80, 0.60 + (bwRecent / bwOlder - 1.5) * 0.2), bot: 'squeeze' };
+  if (price < e5 && e5 < e15) {
+    const strength = (e15 - e5) / price;
+    if (strength > 0.00005) {
+      return { side: 'SELL', confidence: Math.min(0.75, 0.50 + strength * 100), bot: 'microTrend' };
+    }
   }
 
   return null;
 }
 
 // ═══ FILTRO SCALP ══════════════════════════════════════════
-// Mercado tem de ter movimento mínimo (sem flat) mas não demasiado (sem crash)
 function scalpFilter(closes) {
   if (closes.length < 15) return false;
 
@@ -171,10 +177,10 @@ function scalpFilter(closes) {
   const mean = slice.reduce((a, b) => a + b) / slice.length;
   const vol = stddev(slice) / mean;
 
-  // Muito parado (< 0.02% CV) → sem scalps
-  if (vol < 0.0002) return false;
-  // Demasiado volátil (> 0.5% CV) → perigoso para scalps apertados
-  if (vol > 0.005) return false;
+  // Muito parado → sem scalps
+  if (vol < 0.00008) return false;
+  // Demasiado volátil → perigoso
+  if (vol > 0.006) return false;
 
   return true;
 }
@@ -182,14 +188,14 @@ function scalpFilter(closes) {
 // ═══ CONSENSO SCALP ════════════════════════════════════════
 function analyzeScalp(candles) {
   const closes = candles.map(c => c.c).filter(Boolean);
-  if (closes.length < 25) return null;
+  if (closes.length < 20) return null;
 
   const signals = {
     emaCross:      emaCrossBot(closes),
     volumeBurst:   volumeBurstBot(candles),
     rsiBounce:     rsiBounceBot(closes),
     momentumSpike: momentumSpikeBot(closes),
-    squeeze:       squeezeBot(closes),
+    microTrend:    microTrendBot(closes),
   };
 
   let buy = 0, sell = 0, used = [];
@@ -202,14 +208,14 @@ function analyzeScalp(candles) {
     used.push(k);
   }
 
-  // Mínimo 2 sinais concordantes
   const buyCount  = Object.values(signals).filter(s => s && s.side === 'BUY').length;
   const sellCount = Object.values(signals).filter(s => s && s.side === 'SELL').length;
 
-  if (buyCount >= 2 && buy > sell && buy > 0.90) {
+  // 2+ bots concordantes, score total > 1.0
+  if (buyCount >= 2 && buy > sell && buy > 1.0) {
     return { side: 'BUY', score: buy, bots: used, count: buyCount };
   }
-  if (sellCount >= 2 && sell > buy && sell > 0.90) {
+  if (sellCount >= 2 && sell > buy && sell > 1.0) {
     return { side: 'SELL', score: sell, bots: used, count: sellCount };
   }
 
