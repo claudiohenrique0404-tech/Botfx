@@ -9,7 +9,7 @@ if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
     active: true,
     risk: 1,
-    lev: 3,
+    lev: 10,
     symbols: [
       'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
       'BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT',
@@ -146,6 +146,29 @@ module.exports = async (req, res) => {
       return res.json(open);
     }
 
+    // ===== SETUP SYMBOLS (pré-configurar margin+leverage no arranque) =====
+    if (action === 'setupSymbols') {
+      const pt  = 'USDT-FUTURES';
+      const lev = String(getSettings().lev || 5);
+      const syms = p.symbols || [];
+      console.log(`⚙️ Pre-setup ${syms.length} symbols @ ${lev}x...`);
+
+      for (const sym of syms) {
+        await bg('POST', '/api/v2/mix/account/set-margin-mode', {
+          symbol: sym, productType: pt, marginCoin: 'USDT', marginMode: 'isolated',
+        }).catch(() => {});
+
+        // Set leverage para ambos os lados
+        for (const hs of ['long', 'short']) {
+          await bg('POST', '/api/v2/mix/account/set-leverage', {
+            symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev, holdSide: hs,
+          }).catch(() => {});
+        }
+      }
+      console.log(`✅ Setup done: ${syms.join(', ')} @ ${lev}x isolated`);
+      return res.json({ ok: true });
+    }
+
     // ===== ORDER (abrir posição) =====
     if (action === 'order') {
       const sym      = p.symbol;
@@ -153,47 +176,44 @@ module.exports = async (req, res) => {
       const holdSide = p.side === 'BUY' ? 'long' : 'short';
       const lev      = String(getSettings().lev || 3);
       const pt       = 'USDT-FUTURES';
+      const fast     = p.fast === true; // skip margin/leverage se já configurado
 
-      // 1. Margin mode isolated
-      await bg('POST', '/api/v2/mix/account/set-margin-mode', {
-        symbol: sym, productType: pt, marginCoin: 'USDT', marginMode: 'isolated',
-      }).catch(() => {});
+      if (!fast) {
+        // Setup completo (usado pelo swing)
+        await bg('POST', '/api/v2/mix/account/set-margin-mode', {
+          symbol: sym, productType: pt, marginCoin: 'USDT', marginMode: 'isolated',
+        }).catch(() => {});
+        await new Promise(r => setTimeout(r, 200));
 
-      await new Promise(r => setTimeout(r, 200));
-
-      // 2. Set leverage
-      let levOk = false;
-      const lev1 = await bg('POST', '/api/v2/mix/account/set-leverage', {
-        symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev, holdSide,
-      });
-      if (!lev1.code || lev1.code === '00000') {
-        levOk = true;
-      } else {
-        const lev2 = await bg('POST', '/api/v2/mix/account/set-leverage', {
-          symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev,
+        let levOk = false;
+        const lev1 = await bg('POST', '/api/v2/mix/account/set-leverage', {
+          symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev, holdSide,
         });
-        if (!lev2.code || lev2.code === '00000') levOk = true;
-        else console.error('LEVERAGE FAIL:', lev2.msg);
+        if (!lev1.code || lev1.code === '00000') {
+          levOk = true;
+        } else {
+          const lev2 = await bg('POST', '/api/v2/mix/account/set-leverage', {
+            symbol: sym, productType: pt, marginCoin: 'USDT', leverage: lev,
+          });
+          if (!lev2.code || lev2.code === '00000') levOk = true;
+          else console.error('LEVERAGE FAIL:', lev2.msg);
+        }
+        if (!levOk) {
+          return res.status(500).json({ code: 'LEV_FAIL', msg: `Leverage ${lev}x failed` });
+        }
+        await new Promise(r => setTimeout(r, 300));
       }
 
-      if (!levOk) {
-        return res.status(500).json({ code: 'LEV_FAIL', msg: `Nao foi possivel definir leverage ${lev}x` });
-      }
-
-      await new Promise(r => setTimeout(r, 300));
-
-      // 3. Formatar size com contract specs (precisão exacta — sem brute-force)
+      // Formatar size
       const rawQty = Math.abs(parseFloat(p.quantity));
       const finalSize = formatSize(sym, rawQty);
 
       if (parseFloat(finalSize) <= 0) {
-        return res.status(400).json({ code: 'SIZE_ERR', msg: `Size ${rawQty} truncado a 0 para ${sym}` });
+        return res.status(400).json({ code: 'SIZE_ERR', msg: `Size ${rawQty} truncado a 0` });
       }
-
-      // Guardar para reutilizar no SL/TP
       p._finalSize = parseFloat(finalSize);
 
-      // 4. Abrir ordem market
+      // Abrir ordem market
       const orderRes = await bg('POST', '/api/v2/mix/order/place-order', {
         symbol: sym, productType: pt, marginCoin: 'USDT',
         marginMode: 'isolated', side, tradeSide: 'open',
@@ -205,24 +225,23 @@ module.exports = async (req, res) => {
         return res.json(orderRes);
       }
 
-      console.log(`✅ ORDER ${side} ${sym} size:${finalSize} ${lev}x`);
+      console.log(`✅ ORDER ${side} ${sym} size:${finalSize} ${lev}x${fast ? ' ⚡FAST' : ''}`);
 
-      await new Promise(r => setTimeout(r, 600));
-
-      // 5. Buscar preço real de execução
-      let execPrice = 0;
-      try {
-        const orderDetail = await bg('GET', `/api/v2/mix/order/detail?symbol=${sym}&productType=${pt}&orderId=${orderRes.data.orderId}`);
-        const fillPrice = parseFloat(orderDetail?.data?.fillPrice || orderDetail?.data?.priceAvg || 0);
-        if (fillPrice > 0) {
-          execPrice = fillPrice;
-          console.log(`💱 Preço execução real: ${execPrice} (candle era: ${p.price})`);
-        }
-      } catch(e) {
-        console.log('⚠️ Não foi possível obter preço de execução:', e.message);
+      // Preço: fast mode usa candle price, normal busca exec price
+      let price = parseFloat(p.price || 0);
+      if (!fast) {
+        await new Promise(r => setTimeout(r, 600));
+        try {
+          const od = await bg('GET', `/api/v2/mix/order/detail?symbol=${sym}&productType=${pt}&orderId=${orderRes.data.orderId}`);
+          const fp = parseFloat(od?.data?.fillPrice || od?.data?.priceAvg || 0);
+          if (fp > 0) {
+            console.log(`💱 Exec: ${fp} (candle: ${price})`);
+            price = fp;
+          }
+        } catch(e) {}
+      } else {
+        await new Promise(r => setTimeout(r, 150)); // mínimo para Bitget reconhecer posição
       }
-
-      const price = execPrice > 0 ? execPrice : parseFloat(p.price || 0);
 
       if (price > 0) {
         // SL/TP: usar valores do cron.js se fornecidos, senão defaults
@@ -239,7 +258,7 @@ module.exports = async (req, res) => {
         const slPriceFmt = formatPrice(sym, slRaw);
         const tpPriceFmt = formatPrice(sym, tpRaw);
 
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, fast ? 200 : 800));
 
         // 6. Colocar SL — chamada directa + fallbacks para checkScale
         const placeTpslDirect = async (planType, triggerPrice) => {
@@ -294,7 +313,7 @@ module.exports = async (req, res) => {
         };
 
         const slRes = await placeTpslDirect('loss_plan', slPriceFmt);
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, fast ? 80 : 300));
         const tpRes = await placeTpslDirect('profit_plan', tpPriceFmt);
 
         const slOk = slRes && slRes.code === '00000';
