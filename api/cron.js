@@ -105,10 +105,10 @@ function analyzeBots(candles, candles5m) {
   // Threshold combinado: score mínimo E margem sobre o adversário
   const diff = Math.abs(buy - sell);
 
-  // Em VOLATILE exige confiança mínima de 0.70 — mercado caótico requer sinal mais forte
-  const minConf = regime === 'VOLATILE' ? 0.70 : 0.60;
-  if (buy  > sell && buy  > minConf && diff > 0.15) return { side: 'BUY',  bots: used, buy, sell, regime };
-  if (sell > buy  && sell > minConf && diff > 0.15) return { side: 'SELL', bots: used, buy, sell, regime };
+  // Thresholds ligeiramente relaxados para gerar trades suficientes para testar SL/TP
+  const minConf = regime === 'VOLATILE' ? 0.65 : 0.55;
+  if (buy  > sell && buy  > minConf && diff > 0.10) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (sell > buy  && sell > minConf && diff > 0.10) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
