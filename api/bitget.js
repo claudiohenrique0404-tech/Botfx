@@ -7,7 +7,7 @@ const BASE = 'https://api.bitget.com';
 // ===== SETTINGS =====
 if (!global.BOT_SETTINGS) {
   global.BOT_SETTINGS = {
-    active: false,
+    active: true,
     risk: 1,
     lev: 3,
     symbols: [
@@ -227,20 +227,28 @@ module.exports = async (req, res) => {
 
       console.log(`✅ ORDER ${side} ${sym} size:${finalSize} ${lev}x${fast ? ' ⚡FAST' : ''}`);
 
-      // Preço: fast mode usa candle price, normal busca exec price
+      // Buscar preço real de execução SEMPRE — essencial para SL/TP correctos
+      // Fast mode: delay mínimo (200ms). Normal: delay conservador (600ms)
+      await new Promise(r => setTimeout(r, fast ? 200 : 600));
+
       let price = parseFloat(p.price || 0);
-      if (!fast) {
-        await new Promise(r => setTimeout(r, 600));
+      try {
+        const od = await bg('GET', `/api/v2/mix/order/detail?symbol=${sym}&productType=${pt}&orderId=${orderRes.data.orderId}`);
+        const fp = parseFloat(od?.data?.fillPrice || od?.data?.priceAvg || 0);
+        if (fp > 0) {
+          console.log(`💱 Exec: ${fp} (candle: ${price})`);
+          price = fp;
+        }
+      } catch(e) {
+        // Fallback: buscar mark price actual (mais fiável que candle price)
         try {
-          const od = await bg('GET', `/api/v2/mix/order/detail?symbol=${sym}&productType=${pt}&orderId=${orderRes.data.orderId}`);
-          const fp = parseFloat(od?.data?.fillPrice || od?.data?.priceAvg || 0);
-          if (fp > 0) {
-            console.log(`💱 Exec: ${fp} (candle: ${price})`);
-            price = fp;
+          const pos = await bg('GET', `/api/v2/mix/position/all-position?productType=${pt}&marginCoin=USDT`);
+          const myPos = (pos.data || []).find(p => p.symbol === sym && parseFloat(p.total) > 0);
+          if (myPos) {
+            const mark = parseFloat(myPos.markPrice || 0);
+            if (mark > 0) { price = mark; console.log(`💱 Mark price: ${mark}`); }
           }
-        } catch(e) {}
-      } else {
-        await new Promise(r => setTimeout(r, 150)); // mínimo para Bitget reconhecer posição
+        } catch(e2) {}
       }
 
       if (price > 0) {
