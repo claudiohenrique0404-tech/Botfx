@@ -245,21 +245,28 @@ module.exports = async (req, res) => {
         // Bitget exige checkScale específico por símbolo — desconhecido a priori
         const tryTpsl = async (planType, triggerPrice) => {
           const baseQty = p._finalSize || Math.abs(p.quantity);
-          // Gerar sizes sem Math.floor para qty < 1 (ex: SOL qty=0.182 → 0.2, não 0)
-          const sizesRaw = [
-            baseQty.toFixed(0), // inteiro: ex 62 ou 0 (filtrado abaixo)
-            baseQty.toFixed(1), // 1 decimal: ex 0.2 ou 1.7
-            baseQty.toFixed(2), // 2 decimais: ex 0.18 ou 1.69
-          ].filter(s => parseFloat(s) > 0); // eliminar zeros
 
-          // Usar .toFixed(dp) directamente — NÃO parseFloat (remove zeros finais!)
-          // Ex: (82.1104).toFixed(3) = "82.110" ✓
-          //     String(parseFloat((82.1104).toFixed(3))) = "82.11" ✗
+          // TRUNCAR (não arredondar) — evita size > posição real
+          // Ex: 0.025.toFixed(2) = "0.03" (arredonda para cima → rejeita)
+          //     truncate(0.025, 2) = "0.02" (trunca → seguro)
+          const truncate = (n, dp) => {
+            const factor = Math.pow(10, dp);
+            return (Math.floor(n * factor) / factor).toFixed(dp);
+          };
+
+          const sizesRaw = [0, 1, 2, 3, 4]
+            .map(dp => truncate(baseQty, dp))
+            .filter(s => parseFloat(s) > 0)
+            .filter((s, i, arr) => arr.indexOf(s) === i); // deduplicar
+
+          // Usar .toFixed(dp) directamente para preço — preserva zeros finais
+          // Ex: (82.1104).toFixed(3) = "82.110" ✓  (Bitget aceita checkScale=3)
+          //     String(parseFloat(...)) = "82.11" ✗  (remove zero final)
           const priceDps = [1, 2, 3, 4, 5, 6];
 
           for (const sz of sizesRaw) {
             for (const dp of priceDps) {
-              const pr = triggerPrice.toFixed(dp); // preserva zeros finais
+              const pr = triggerPrice.toFixed(dp);
               const res = await bg('POST', '/api/v2/mix/order/place-tpsl-order', {
                 symbol: sym, productType: pt, marginCoin: 'USDT',
                 holdSide, triggerType: 'mark_price',
@@ -272,7 +279,6 @@ module.exports = async (req, res) => {
               }
               await new Promise(r => setTimeout(r, 60));
             }
-            // Logar falha após todas as precisões de preço para este size
             console.error(`❌ ${planType} FAIL size=${sz} (todas as precisões de preço falharam)`);
           }
           return { code: 'ERR', msg: 'all size+price combinations failed' };
