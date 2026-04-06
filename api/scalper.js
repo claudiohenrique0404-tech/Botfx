@@ -10,9 +10,9 @@ const { getMinQty } = require('./contracts');
 // CONFIG SCALPER
 // ══════════════════════════════════════════════════════════════
 const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
-const LEVERAGE    = 3;
+const LEVERAGE    = 5;
 const SL_PCT      = 0.0020;     // 0.20%
-const TP_PCT      = 0.0035;     // 0.35% (~0.23% líquido)
+const TP_PCT      = 0.0050;     // 0.50% (~0.38% líquido)
 const MAX_POS     = 1;          // 1 scalp de cada vez — foco total
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
 const TIME_STOP   = 3 * 60_000; // 3 min max
@@ -118,7 +118,9 @@ module.exports = async function runScalper() {
     if (!global._scalpStateLoaded) {
       await loadState();
       global._scalpStateLoaded = true;
-      log(`⚡ SCALPER | SL:${(SL_PCT*100).toFixed(2)}% TP:${(TP_PCT*100).toFixed(2)}% MaxPos:${MAX_POS} Syms:${SYMBOLS.join(',')}`);
+      // Scalper usa leverage próprio
+      if (global.BOT_SETTINGS) global.BOT_SETTINGS.lev = LEVERAGE;
+      log(`⚡ SCALPER | SL:${(SL_PCT*100).toFixed(2)}% TP:${(TP_PCT*100).toFixed(2)}% Lev:${LEVERAGE}x MaxPos:${MAX_POS} Syms:${SYMBOLS.join(',')}`);
     }
 
     // ── Balance + Positions em paralelo ──
