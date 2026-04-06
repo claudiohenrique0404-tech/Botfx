@@ -249,15 +249,12 @@ function contextFilter(closesHigher) {
 
 // ═══ EXIT BOT ═══════════════════════════════════════════════
 function exitBot(pnl, timeOpen, maxPnl) {
-  const MAX_TIME_MS = 20 * 60 * 1000;
+  // Trailing só quando lucro cobre fees (>0.5%)
+  // Abaixo disso, SL/TP na Bitget gere a saída
+  if (maxPnl >= 1.0 && pnl < maxPnl * 0.7) return 'TRAIL'; // recuo 30% de 1%+ 
+  if (maxPnl >= 0.5 && pnl < maxPnl * 0.6) return 'TRAIL'; // recuo 40% de 0.5%+
 
-  if (maxPnl >= 1.0 && pnl < maxPnl * 0.7) return 'TRAIL';
-  if (maxPnl >= 0.5 && pnl < maxPnl * 0.6) return 'TRAIL';
-  if (maxPnl >= 0.25 && pnl < maxPnl * 0.65) return 'TRAIL';
-
-  if (timeOpen > 18 * 60 * 1000 && pnl < 0.3 && pnl > -0.3) return 'TIME_WEAK';
-  if (timeOpen > MAX_TIME_MS && pnl > 0.2) return 'TIME';
-
+  // Sem TIME_WEAK / TIME — fechavam com PnL que não cobria fees
   return null;
 }
 
