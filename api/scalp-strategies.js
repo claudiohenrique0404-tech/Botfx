@@ -1,6 +1,7 @@
-// scalp-strategies.js v2 — calibrado para 1m candles reais
-// Thresholds ajustados: BTC move ~0.02-0.05% por vela 1m em mercado normal
+// scalp-strategies.js v3 — scalping optimizado
+// VWAP, ATR dinâmico, candle patterns, filtro horário, confirmação 5m
 
+// ═══ HELPERS ═══════════════════════════════════════════════
 function ema(values, period) {
   const k = 2 / (period + 1);
   let e = values[0];
@@ -26,176 +27,270 @@ function rsiCalc(closes, period = 7) {
   return 100 - (100 / (1 + avgGain / avgLoss));
 }
 
-function stddev(values) {
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  return Math.sqrt(values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length);
+// ═══ VWAP + BANDAS ═════════════════════════════════════════
+// Referência institucional — preço a reverter para VWAP é alta probabilidade
+function calcVWAP(candles) {
+  let cumTPV = 0, cumVol = 0;
+  const vwapPoints = [];
+
+  for (const c of candles) {
+    const tp = (c.h + c.l + c.c) / 3; // typical price
+    cumTPV += tp * c.v;
+    cumVol += c.v;
+    vwapPoints.push(cumVol > 0 ? cumTPV / cumVol : tp);
+  }
+
+  const vwap = vwapPoints.at(-1) || 0;
+
+  // Bandas de desvio (similar a Bollinger mas sobre VWAP)
+  const deviations = candles.map((c, i) => {
+    const tp = (c.h + c.l + c.c) / 3;
+    return Math.pow(tp - (vwapPoints[i] || vwap), 2);
+  });
+  const variance = deviations.reduce((a, b) => a + b, 0) / deviations.length;
+  const stddev = Math.sqrt(variance);
+
+  return { vwap, upper: vwap + 1.5 * stddev, lower: vwap - 1.5 * stddev, stddev };
 }
 
-// ═══ 1. EMA MICRO CROSS (EMA3/EMA8) ═══════════════════════
-// Cross recente OU EMAs a divergir (momentum building)
-function emaCrossBot(closes) {
-  if (closes.length < 15) return null;
+function vwapBot(candles) {
+  if (!candles || candles.length < 20) return null;
 
-  const e3now  = ema(closes, 3);
-  const e8now  = ema(closes, 8);
-  const e3prev = ema(closes.slice(0, -1), 3);
-  const e8prev = ema(closes.slice(0, -1), 8);
+  const { vwap, upper, lower, stddev } = calcVWAP(candles.slice(-30));
+  const price = candles.at(-1).c;
+  const prev  = candles.at(-2).c;
 
-  const price  = closes.at(-1);
-  const spread = Math.abs(e3now - e8now) / price;
+  if (vwap === 0 || stddev === 0) return null;
 
-  // Cross acabou de acontecer
-  if (e3prev <= e8prev && e3now > e8now) {
-    return { side: 'BUY', confidence: Math.min(0.80, 0.55 + spread * 80), bot: 'emaCross' };
-  }
-  if (e3prev >= e8prev && e3now < e8now) {
-    return { side: 'SELL', confidence: Math.min(0.80, 0.55 + spread * 80), bot: 'emaCross' };
+  // Preço tocou banda inferior e está a subir → BUY (reversão para VWAP)
+  if (price <= lower && price > prev) {
+    const dist = (vwap - price) / price; // distância até VWAP em %
+    return { side: 'BUY', confidence: Math.min(0.85, 0.55 + dist * 20), bot: 'vwap' };
   }
 
-  // EMAs já cruzadas e a divergir (momentum activo)
-  const prevSpread = Math.abs(e3prev - e8prev) / price;
-  if (spread > prevSpread && spread > 0.00008) {
-    if (e3now > e8now) return { side: 'BUY',  confidence: Math.min(0.70, 0.50 + spread * 60), bot: 'emaCross' };
-    if (e3now < e8now) return { side: 'SELL', confidence: Math.min(0.70, 0.50 + spread * 60), bot: 'emaCross' };
+  // Preço tocou banda superior e está a descer → SELL
+  if (price >= upper && price < prev) {
+    const dist = (price - vwap) / price;
+    return { side: 'SELL', confidence: Math.min(0.85, 0.55 + dist * 20), bot: 'vwap' };
+  }
+
+  // Preço cruzou VWAP com momentum → continuação
+  if (prev < vwap && price > vwap && price - prev > stddev * 0.3) {
+    return { side: 'BUY', confidence: Math.min(0.75, 0.50 + (price - vwap) / stddev * 0.15), bot: 'vwap' };
+  }
+  if (prev > vwap && price < vwap && prev - price > stddev * 0.3) {
+    return { side: 'SELL', confidence: Math.min(0.75, 0.50 + (vwap - price) / stddev * 0.15), bot: 'vwap' };
   }
 
   return null;
 }
 
-// ═══ 2. VOLUME BURST ═══════════════════════════════════════
+// ═══ ATR (Average True Range) ══════════════════════════════
+// Usado para SL/TP dinâmico — adapta à volatilidade actual
+function calcATR(candles, period = 14) {
+  if (candles.length < period + 1) return 0;
+
+  let atr = 0;
+  for (let i = 1; i <= period; i++) {
+    const h = candles[i].h;
+    const l = candles[i].l;
+    const pc = candles[i - 1].c;
+    atr += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  }
+  atr /= period;
+
+  // Smoothing Wilder's
+  for (let i = period + 1; i < candles.length; i++) {
+    const h = candles[i].h;
+    const l = candles[i].l;
+    const pc = candles[i - 1].c;
+    const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    atr = (atr * (period - 1) + tr) / period;
+  }
+
+  return atr;
+}
+
+// ═══ CANDLE PATTERNS ═══════════════════════════════════════
+// Engulfing e pin bars — sinais fortes de reversão imediata no 1m
+function candlePatternBot(candles) {
+  if (!candles || candles.length < 5) return null;
+
+  const curr = candles.at(-1);
+  const prev = candles.at(-2);
+
+  const currBody = Math.abs(curr.c - curr.o);
+  const prevBody = Math.abs(prev.c - prev.o);
+  const currRange = curr.h - curr.l;
+  const price = curr.c;
+
+  if (currRange === 0 || price === 0) return null;
+
+  // ── Bullish Engulfing ──
+  // Vela anterior bearish, vela actual bullish que engole a anterior
+  if (prev.c < prev.o && curr.c > curr.o && curr.c > prev.o && curr.o < prev.c && currBody > prevBody) {
+    const strength = currBody / currRange; // corpo grande vs range = forte
+    return { side: 'BUY', confidence: Math.min(0.80, 0.55 + strength * 0.3), bot: 'pattern' };
+  }
+
+  // ── Bearish Engulfing ──
+  if (prev.c > prev.o && curr.c < curr.o && curr.c < prev.o && curr.o > prev.c && currBody > prevBody) {
+    const strength = currBody / currRange;
+    return { side: 'SELL', confidence: Math.min(0.80, 0.55 + strength * 0.3), bot: 'pattern' };
+  }
+
+  // ── Hammer (bullish pin bar) ──
+  // Corpo pequeno no topo, sombra inferior longa (>2x corpo)
+  const upperWick = curr.h - Math.max(curr.o, curr.c);
+  const lowerWick = Math.min(curr.o, curr.c) - curr.l;
+
+  if (currBody > 0 && lowerWick > currBody * 2 && upperWick < currBody * 0.5) {
+    // Confirmar: velas anteriores estavam a descer
+    if (candles.at(-3).c > candles.at(-2).c) {
+      return { side: 'BUY', confidence: Math.min(0.75, 0.55 + lowerWick / currRange * 0.25), bot: 'pattern' };
+    }
+  }
+
+  // ── Shooting Star (bearish pin bar) ──
+  if (currBody > 0 && upperWick > currBody * 2 && lowerWick < currBody * 0.5) {
+    if (candles.at(-3).c < candles.at(-2).c) {
+      return { side: 'SELL', confidence: Math.min(0.75, 0.55 + upperWick / currRange * 0.25), bot: 'pattern' };
+    }
+  }
+
+  return null;
+}
+
+// ═══ VOLUME BURST ══════════════════════════════════════════
 function volumeBurstBot(candles) {
   if (!candles || candles.length < 15) return null;
 
-  const getV = c => c.v || 0;
-  const getC = c => c.c || 0;
-  const getO = c => c.o || 0;
-
-  const vols = candles.slice(-15).map(getV);
+  const vols = candles.slice(-15).map(c => c.v);
   const avgVol = vols.slice(0, -1).reduce((a, b) => a + b, 0) / (vols.length - 1 || 1);
   const lastVol = vols.at(-1);
   const ratio = avgVol > 0 ? lastVol / avgVol : 0;
 
-  // 1.5x média já é relevante em 1m
   if (ratio < 1.5) return null;
 
   const last = candles.at(-1);
-  const body = Math.abs(getC(last) - getO(last));
-  const price = getC(last);
+  const body = Math.abs(last.c - last.o);
+  if (last.c === 0 || body / last.c < 0.00005) return null;
 
-  // Corpo mínimo muito baixo — quase qualquer vela não-doji
-  if (price > 0 && body / price < 0.00005) return null;
-
-  const isBull = getC(last) > getO(last);
+  const isBull = last.c > last.o;
   const conf = Math.min(0.85, 0.55 + (ratio - 1.5) * 0.10);
 
   return { side: isBull ? 'BUY' : 'SELL', confidence: conf, bot: 'volumeBurst' };
 }
 
-// ═══ 3. RSI BOUNCE ═════════════════════════════════════════
-// RSI(7) em extremo — zonas alargadas para 1m
-function rsiBounceBot(closes) {
-  if (closes.length < 15) return null;
+// ═══ MOMENTUM SPIKE (ATR-relative) ═════════════════════════
+// Movimento relativo ao ATR em vez de % fixo — adapta à volatilidade
+function momentumSpikeBot(candles) {
+  if (!candles || candles.length < 20) return null;
 
-  const rsi = rsiCalc(closes, 7);
-  const last = closes.at(-1);
-  const prev = closes.at(-2);
-  const move = prev > 0 ? (last - prev) / prev : 0;
+  const atr = calcATR(candles.slice(-20));
+  if (atr === 0) return null;
 
-  // RSI < 28 + qualquer movimento bullish
-  if (rsi < 28 && move > 0.00005) {
-    return { side: 'BUY', confidence: Math.min(0.80, 0.50 + (28 - rsi) / 60), bot: 'rsiBounce' };
-  }
-  // RSI > 72 + qualquer movimento bearish
-  if (rsi > 72 && move < -0.00005) {
-    return { side: 'SELL', confidence: Math.min(0.80, 0.50 + (rsi - 72) / 60), bot: 'rsiBounce' };
-  }
+  const c0 = candles.at(-1).c;
+  const c3 = candles.at(-4).c;
+  const move = c0 - c3;
 
-  return null;
-}
+  // Movimento > 0.8 ATR em 3 candles = spike significativo
+  if (Math.abs(move) < atr * 0.8) return null;
 
-// ═══ 4. MOMENTUM SPIKE ═════════════════════════════════════
-// Aceleração de preço — 2 de 3 velas na mesma direcção basta
-function momentumSpikeBot(closes) {
-  if (closes.length < 8) return null;
-
-  const c0 = closes.at(-1);
-  const c3 = closes.at(-4);
-  if (!c0 || !c3) return null;
-
-  const roc = (c0 - c3) / c3;
-
-  // 0.06% em 3 velas de 1m = movimento real
-  if (Math.abs(roc) < 0.0006) return null;
-
-  // Pelo menos 2 de 3 velas na mesma direcção
-  const c1 = closes.at(-2);
-  const c2 = closes.at(-3);
+  // Consistência: pelo menos 2 de 3 velas na mesma direcção
+  const c1 = candles.at(-2).c;
+  const c2 = candles.at(-3).c;
   const ups   = (c0 > c1 ? 1 : 0) + (c1 > c2 ? 1 : 0) + (c2 > c3 ? 1 : 0);
   const downs = (c0 < c1 ? 1 : 0) + (c1 < c2 ? 1 : 0) + (c2 < c3 ? 1 : 0);
 
-  if (roc > 0 && ups >= 2) {
-    return { side: 'BUY', confidence: Math.min(0.80, 0.55 + Math.abs(roc) * 40), bot: 'momentumSpike' };
-  }
-  if (roc < 0 && downs >= 2) {
-    return { side: 'SELL', confidence: Math.min(0.80, 0.55 + Math.abs(roc) * 40), bot: 'momentumSpike' };
-  }
+  const atrRatio = Math.abs(move) / atr;
+  const conf = Math.min(0.80, 0.55 + (atrRatio - 0.8) * 0.25);
+
+  if (move > 0 && ups >= 2) return { side: 'BUY', confidence: conf, bot: 'momentum' };
+  if (move < 0 && downs >= 2) return { side: 'SELL', confidence: conf, bot: 'momentum' };
 
   return null;
 }
 
-// ═══ 5. MICRO TREND ════════════════════════════════════════
-// EMA 5/15 alinhadas + preço do lado certo — micro-tendência confirmada
-function microTrendBot(closes) {
-  if (closes.length < 20) return null;
+// ═══ TREND 5M (confirmação de timeframe superior) ══════════
+// Não é um sinal de entrada — é um filtro de direcção
+function get5mBias(candles5m) {
+  if (!candles5m || candles5m.length < 20) return 'NEUTRAL';
+
+  const closes = candles5m.map(c => c.c).filter(Boolean);
+  if (closes.length < 20) return 'NEUTRAL';
 
   const e5  = ema(closes, 5);
   const e15 = ema(closes, 15);
   const price = closes.at(-1);
 
-  // Preço acima de ambas EMAs + EMAs alinhadas
-  if (price > e5 && e5 > e15) {
-    const strength = (e5 - e15) / price;
-    if (strength > 0.00005) {
-      return { side: 'BUY', confidence: Math.min(0.75, 0.50 + strength * 100), bot: 'microTrend' };
-    }
-  }
-  if (price < e5 && e5 < e15) {
-    const strength = (e15 - e5) / price;
-    if (strength > 0.00005) {
-      return { side: 'SELL', confidence: Math.min(0.75, 0.50 + strength * 100), bot: 'microTrend' };
-    }
-  }
+  if (price > e5 && e5 > e15) return 'BUY';
+  if (price < e5 && e5 < e15) return 'SELL';
+  return 'NEUTRAL';
+}
 
-  return null;
+// ═══ FILTRO HORÁRIO ════════════════════════════════════════
+// Só scalpar em horas de alto volume (sessões activas)
+function isActiveHours() {
+  const hour = new Date().getUTCHours();
+  // London open (07:00) até NY close (21:00 UTC) — 14h de janela
+  // Pico: 13:00-17:00 (overlap London/NY)
+  return hour >= 7 && hour <= 21;
+}
+
+function isPeakHours() {
+  const hour = new Date().getUTCHours();
+  return hour >= 13 && hour <= 17;
 }
 
 // ═══ FILTRO SCALP ══════════════════════════════════════════
-function scalpFilter(closes) {
-  if (closes.length < 15) return false;
+function scalpFilter(candles) {
+  if (!candles || candles.length < 15) return false;
 
-  const slice = closes.slice(-15);
-  const mean = slice.reduce((a, b) => a + b) / slice.length;
-  const vol = stddev(slice) / mean;
+  const atr = calcATR(candles.slice(-15), 10);
+  const price = candles.at(-1).c;
+  if (price === 0 || atr === 0) return false;
 
-  // Muito parado → sem scalps
-  if (vol < 0.00008) return false;
-  // Demasiado volátil → perigoso
-  if (vol > 0.006) return false;
+  const atrPct = atr / price;
+
+  // Muito parado (ATR < 0.01% do preço) → sem scalps
+  if (atrPct < 0.0001) return false;
+  // Demasiado volátil (ATR > 0.5%) → perigoso
+  if (atrPct > 0.005) return false;
 
   return true;
 }
 
-// ═══ CONSENSO SCALP ════════════════════════════════════════
-function analyzeScalp(candles) {
-  const closes = candles.map(c => c.c).filter(Boolean);
-  if (closes.length < 20) return null;
+// ═══ SL/TP DINÂMICO (ATR-based) ═══════════════════════════
+// Retorna {slPct, tpPct} adaptados à volatilidade actual
+function calcDynamicSLTP(candles) {
+  const atr = calcATR(candles.slice(-20));
+  const price = candles.at(-1).c;
+  if (price === 0 || atr === 0) return { slPct: 0.0020, tpPct: 0.0050 }; // fallback fixo
 
+  const atrPct = atr / price;
+
+  // SL = 1.2 ATR, TP = 2.5 ATR
+  // Mínimos garantem que TP cobre fees mesmo em mercado calmo
+  const slPct = Math.max(0.0015, Math.min(0.0035, atrPct * 1.2));  // 0.15% — 0.35%
+  const tpPct = Math.max(0.0040, Math.min(0.0080, atrPct * 2.5));  // 0.40% — 0.80%
+
+  return { slPct, tpPct };
+}
+
+// ═══ CONSENSO SCALP ════════════════════════════════════════
+function analyzeScalp(candles1m, candles5m) {
+  if (!candles1m || candles1m.length < 20) return null;
+
+  // Filtro horário — fora de horas activas não scalpar
+  if (!isActiveHours()) return { skip: true, reason: 'fora de horas' };
+
+  // Sinais 1m
   const signals = {
-    emaCross:      emaCrossBot(closes),
-    volumeBurst:   volumeBurstBot(candles),
-    rsiBounce:     rsiBounceBot(closes),
-    momentumSpike: momentumSpikeBot(closes),
-    microTrend:    microTrendBot(closes),
+    vwap:        vwapBot(candles1m),
+    pattern:     candlePatternBot(candles1m),
+    volumeBurst: volumeBurstBot(candles1m),
+    momentum:    momentumSpikeBot(candles1m),
   };
 
   let buy = 0, sell = 0, used = [];
@@ -211,15 +306,29 @@ function analyzeScalp(candles) {
   const buyCount  = Object.values(signals).filter(s => s && s.side === 'BUY').length;
   const sellCount = Object.values(signals).filter(s => s && s.side === 'SELL').length;
 
-  // 2+ bots concordantes, score total > 1.0
+  // Mínimo 2 bots concordantes
+  let side = null, score = 0, count = 0;
   if (buyCount >= 2 && buy > sell && buy > 1.0) {
-    return { side: 'BUY', score: buy, bots: used, count: buyCount };
-  }
-  if (sellCount >= 2 && sell > buy && sell > 1.0) {
-    return { side: 'SELL', score: sell, bots: used, count: sellCount };
+    side = 'BUY'; score = buy; count = buyCount;
+  } else if (sellCount >= 2 && sell > buy && sell > 1.0) {
+    side = 'SELL'; score = sell; count = sellCount;
   }
 
-  return null;
+  if (!side) return null;
+
+  // Filtro 5m: não entrar contra a tendência do timeframe superior
+  const bias5m = get5mBias(candles5m);
+  if (bias5m !== 'NEUTRAL' && bias5m !== side) {
+    return { skip: true, reason: `5m contra (${bias5m})` };
+  }
+
+  // Boost de confiança durante peak hours
+  if (isPeakHours()) score *= 1.1;
+
+  // SL/TP dinâmico baseado no ATR actual
+  const { slPct, tpPct } = calcDynamicSLTP(candles1m);
+
+  return { side, score, bots: used, count, slPct, tpPct };
 }
 
-module.exports = { analyzeScalp, scalpFilter };
+module.exports = { analyzeScalp, scalpFilter, calcATR, isActiveHours };
