@@ -137,10 +137,14 @@ module.exports = async function runScalper() {
     const positions = Array.isArray(posData) ? posData : [];
     const myPositions = positions.filter(p => SYMBOLS.includes(p.symbol));
 
-    // ── Gerir posições (só SL fallback, sem time stop) ──
+    // ── Gerir posições (só as abertas pelo scalper, rastreadas em STATE) ──
     for (const pos of myPositions) {
       const sym      = pos.symbol;
       const holdSide = pos.holdSide;
+
+      // Ignorar posições do swing bot (não estão no STATE do scalper)
+      if (!STATE[sym]?.openTime) continue;
+
       const entry    = parseFloat(pos.openPriceAvg || 0);
       const current  = parseFloat(pos.markPrice || 0);
       if (!entry || !current) continue;
@@ -149,8 +153,6 @@ module.exports = async function runScalper() {
         ? ((current - entry) / entry) * 100
         : ((entry - current) / entry) * 100;
 
-      if (!STATE[sym]) STATE[sym] = {};
-      if (!STATE[sym].openTime) STATE[sym].openTime = parseInt(pos.cTime || Date.now());
       if (STATE[sym].maxPnl === undefined) STATE[sym].maxPnl = pnl;
       if (pnl > STATE[sym].maxPnl) STATE[sym].maxPnl = pnl;
 
@@ -197,14 +199,19 @@ module.exports = async function runScalper() {
         await saveEquity(equity);
       }
     }
-    PREV_POSITIONS = myPositions.slice();
+    // Só guardar posições do scalper para detecção de fechos
+    const scalperPositions = myPositions.filter(p => STATE[p.symbol]?.openTime);
+    PREV_POSITIONS = scalperPositions.slice();
 
     // ── Procurar scalps ──
-    if (myPositions.length >= MAX_POS) return;
+    // Contar só posições abertas PELO SCALPER (rastreadas em STATE)
+    // Ignora posições do swing bot nos mesmos símbolos
+    const activeScalps = myPositions.filter(p => STATE[p.symbol]?.openTime).length;
+    if (activeScalps >= MAX_POS) return;
 
-    // Filtrar candidatos
+    // Filtrar candidatos (só verificar posições do scalper, não do swing)
     const candidates = SYMBOLS.filter(sym => {
-      if (myPositions.find(p => p.symbol === sym)) return false;
+      if (scalperPositions.find(p => p.symbol === sym)) return false;
       if (STATE[sym]?.lastOpen && Date.now() - STATE[sym].lastOpen < COOLDOWN_MS) return false;
       return true;
     });
