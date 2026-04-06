@@ -339,11 +339,16 @@ module.exports = async function runBot() {
     for (const sym of settings.symbols) {
       if (openSymbols.includes(sym)) continue;
 
-      // Cooldown
+      // Cooldown — em TEST_MODE, limpar cooldowns antigos (podem ter timestamps futuros do bug anterior)
       const symState = TRAIL_STATE[sym];
       if (symState?.lastOpen && Date.now() - symState.lastOpen < 120000) {
-        log(`⏳ ${sym} em cooldown`);
-        continue;
+        if (TEST_MODE) {
+          log(`🧪 ${sym} cooldown ignorado (TEST_MODE) — limpar state antigo`);
+          delete TRAIL_STATE[sym];
+        } else {
+          log(`⏳ ${sym} em cooldown`);
+          continue;
+        }
       }
 
       log(`🔍 ${sym}`);
@@ -365,7 +370,26 @@ module.exports = async function runBot() {
 
       if (!TEST_MODE && !STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
 
-      const decision = analyzeBots(candles5m, candles15m);
+      let decision = analyzeBots(candles5m, candles15m);
+
+      // TEST_MODE: se nenhum bot disparou, forçar sinal pela direcção da última vela
+      // Objectivo: gerar trade para confirmar fluxo order → SL/TP → logs
+      if (!decision && TEST_MODE) {
+        const lastCandle = closes.at(-1);
+        const prevCandle = closes.at(-2);
+        if (lastCandle && prevCandle) {
+          const forceSide = lastCandle >= prevCandle ? 'BUY' : 'SELL';
+          decision = {
+            side: forceSide,
+            bots: ['forced_test'],
+            buy:  forceSide === 'BUY'  ? 0.50 : 0.00,
+            sell: forceSide === 'SELL' ? 0.50 : 0.00,
+            regime: 'RANGE',
+          };
+          log(`🧪 FORCED TRADE ${forceSide} ${sym} (test SL/TP flow)`);
+        }
+      }
+
       if (!decision) { log('❌ sem consenso'); continue; }
 
       // Correlação
