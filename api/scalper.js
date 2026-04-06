@@ -156,19 +156,36 @@ module.exports = async function runScalper() {
       if (STATE[sym].maxPnl === undefined) STATE[sym].maxPnl = pnl;
       if (pnl > STATE[sym].maxPnl) STATE[sym].maxPnl = pnl;
 
+      const maxPnl = STATE[sym].maxPnl;
       const timeOpen = Date.now() - STATE[sym].openTime;
+      const trailActive = maxPnl >= 0.30;
 
-      // Log a cada 30s
-      if (!STATE[sym].lastLog || Date.now() - STATE[sym].lastLog > 30000) {
-        log(`📊 ${sym} ${holdSide} PnL:${pnl.toFixed(3)}% t:${Math.round(timeOpen/1000)}s`);
+      // Log a cada 30s (ou a cada 5s se trailing activo — acompanhar de perto)
+      const logInterval = trailActive ? 5000 : 30000;
+      if (!STATE[sym].lastLog || Date.now() - STATE[sym].lastLog > logInterval) {
+        const trailInfo = trailActive ? ` 🔒TRAIL(exit:${(maxPnl*0.60).toFixed(2)}%)` : '';
+        log(`📊 ${sym} ${holdSide} PnL:${pnl.toFixed(3)}% max:${maxPnl.toFixed(2)}%${trailInfo} t:${Math.round(timeOpen/1000)}s`);
         STATE[sym].lastLog = Date.now();
       }
 
-      // SL fallback apenas (SL/TP na Bitget faz o resto)
+      // SL fallback (safety net)
       const slFallback = STATE[sym].slPct ? (STATE[sym].slPct * 100 + 0.05) : 0.25;
+      let shouldClose = false;
+      let reason = '';
+
       if (pnl <= -slFallback) {
+        shouldClose = true;
+        reason = `SL fallback ${pnl.toFixed(2)}%`;
+      }
+      // Trailing: activa acima de 0.30% (cobre fees) — recuo de 40% fecha
+      else if (maxPnl >= 0.30 && pnl < maxPnl * 0.60) {
+        shouldClose = true;
+        reason = `TRAIL (pico:${maxPnl.toFixed(2)}%→${pnl.toFixed(2)}%)`;
+      }
+
+      if (shouldClose) {
         await callApi({ action: 'close', symbol: sym, holdSide });
-        log(`🛑 SL fallback ${pnl.toFixed(2)}% ${sym}`);
+        log(pnl > 0 ? `✅ ${reason} ${sym}` : `🛑 ${reason} ${sym}`);
         const trade = await setTradePnL(sym, pnl);
         if (trade?.bots) { for (const b of trade.bots) BRAIN.updateBot(b, pnl); }
         STATE[sym] = { lastOpen: Date.now() };
