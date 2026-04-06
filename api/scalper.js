@@ -10,8 +10,8 @@ const { getMinQty } = require('./contracts');
 // CONFIG
 // ══════════════════════════════════════════════════════════════
 const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
-const LEVERAGE    = 20;
-const MAX_POS     = 1;
+const LEVERAGE    = 5;
+const MAX_POS     = 3;
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
 const KILL_SWITCH = -4;         // % daily loss
 const MIN_SCORE   = 1.00;
