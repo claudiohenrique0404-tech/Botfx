@@ -59,7 +59,7 @@ async function start() {
       running = false;
     }
 
-    await sleep(2000); // 2s — máxima velocidade para scalping
+    await sleep(1000); // 1s — fast order eliminou a necessidade de esperar mais
   }
 }
 
