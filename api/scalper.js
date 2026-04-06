@@ -10,7 +10,7 @@ const { getMinQty } = require('./contracts');
 // CONFIG
 // ══════════════════════════════════════════════════════════════
 const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
-const LEVERAGE    = 3;
+const LEVERAGE    = 5;
 const MAX_POS     = 1;
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
 const KILL_SWITCH = -4;         // % daily loss
@@ -158,12 +158,12 @@ module.exports = async function runScalper() {
 
       const maxPnl = STATE[sym].maxPnl;
       const timeOpen = Date.now() - STATE[sym].openTime;
-      const trailActive = maxPnl >= 0.30;
+      const trailActive = maxPnl >= 0.18; // activa assim que cobre fees
 
       // Log a cada 30s (ou a cada 5s se trailing activo — acompanhar de perto)
       const logInterval = trailActive ? 5000 : 30000;
       if (!STATE[sym].lastLog || Date.now() - STATE[sym].lastLog > logInterval) {
-        const trailInfo = trailActive ? ` 🔒TRAIL(exit:${(maxPnl*0.60).toFixed(2)}%)` : '';
+        const trailInfo = trailActive ? ` 🔒TRAIL(exit:${(maxPnl*0.70).toFixed(2)}%)` : '';
         log(`📊 ${sym} ${holdSide} PnL:${pnl.toFixed(3)}% max:${maxPnl.toFixed(2)}%${trailInfo} t:${Math.round(timeOpen/1000)}s`);
         STATE[sym].lastLog = Date.now();
       }
@@ -177,8 +177,11 @@ module.exports = async function runScalper() {
         shouldClose = true;
         reason = `SL fallback ${pnl.toFixed(2)}%`;
       }
-      // Trailing: activa acima de 0.30% (cobre fees) — recuo de 40% fecha
-      else if (maxPnl >= 0.30 && pnl < maxPnl * 0.60) {
+      // Trailing: activa a 0.18% (acima de fees) — recuo de 30% fecha
+      // 0.18% max → exit 0.126% (acima de fees 0.12%)
+      // 0.25% max → exit 0.175% (lucro claro)
+      // 0.40% max → exit 0.28% (bom lucro)
+      else if (maxPnl >= 0.18 && pnl < maxPnl * 0.70) {
         shouldClose = true;
         reason = `TRAIL (pico:${maxPnl.toFixed(2)}%→${pnl.toFixed(2)}%)`;
       }
