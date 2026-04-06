@@ -225,10 +225,12 @@ module.exports = async (req, res) => {
       const price = execPrice > 0 ? execPrice : parseFloat(p.price || 0);
 
       if (price > 0) {
-        const slPct = 0.006; // 0.6%
+        // SL/TP: usar valores do cron.js se fornecidos, senão defaults
+        const slPct = parseFloat(p.slPct) || 0.006;
         const conf = parseFloat(p.confidence || 0.6);
-        const tpPct = conf > 0.75 ? 0.022 : conf > 0.65 ? 0.016 : 0.012;
-        console.log(`📐 TP dinâmico: ${(tpPct*100).toFixed(1)}% (conf:${conf.toFixed(2)})`);
+        const tpPct = p.tpPct ? parseFloat(p.tpPct)
+                    : conf > 0.75 ? 0.022 : conf > 0.65 ? 0.016 : 0.012;
+        console.log(`📐 SL:${(slPct*100).toFixed(2)}% TP:${(tpPct*100).toFixed(2)}% (conf:${conf.toFixed(2)})`);
 
         const slRaw = p.side === 'BUY' ? price * (1 - slPct) : price * (1 + slPct);
         const tpRaw = p.side === 'BUY' ? price * (1 + tpPct) : price * (1 - tpPct);
