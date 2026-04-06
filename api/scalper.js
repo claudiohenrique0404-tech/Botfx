@@ -17,7 +17,7 @@ const MAX_POS     = 1;          // 1 scalp de cada vez — foco total
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
 const TIME_STOP   = 3 * 60_000; // 3 min max
 const KILL_SWITCH = -4;         // % daily loss
-const MIN_SCORE   = 0.90;       // score mínimo (2+ bots concordantes)
+const MIN_SCORE   = 1.00;       // score mínimo (soma de 2+ bots concordantes)
 
 // ── State ────────────────────────────────────────────────────
 let START_EQUITY = null;
