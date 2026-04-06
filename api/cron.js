@@ -205,8 +205,6 @@ module.exports = async function runBot() {
 
       if (pnl <= -0.5) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}%`; }
       else if (exitReason === 'TRAIL') { shouldClose = true; closeReason = `TRAIL (${maxPnl.toFixed(2)}%→${pnl.toFixed(2)}%)`; }
-      else if (exitReason === 'TIME') { shouldClose = true; closeReason = `TIME STOP`; }
-      else if (exitReason === 'TIME_WEAK') { shouldClose = true; closeReason = `TRADE FRACA`; }
 
       if (shouldClose) {
         await callApi(base, { action: 'close', symbol, holdSide });
