@@ -282,8 +282,7 @@ function calcDynamicSLTP(candles) {
 function analyzeScalp(candles1m, candles5m) {
   if (!candles1m || candles1m.length < 20) return null;
 
-  // Filtro horário — fora de horas activas não scalpar
-  if (!isActiveHours()) return { skip: true, reason: 'fora de horas' };
+  // Sem filtro horário — crypto é 24/7, VWAP e volume filtram naturalmente
 
   // Sinais 1m
   const signals = {
@@ -331,4 +330,4 @@ function analyzeScalp(candles1m, candles5m) {
   return { side, score, bots: used, count, slPct, tpPct };
 }
 
-module.exports = { analyzeScalp, scalpFilter, calcATR, isActiveHours };
+module.exports = { analyzeScalp, scalpFilter, calcATR };
