@@ -124,7 +124,7 @@ module.exports = async function runBot() {
     }
 
     const settings = global.BOT_SETTINGS || { active: true, lev: 5, symbols: [
-      'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT','ATOMUSDT'
+      'XRPUSDT','BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT','ATOMUSDT'
     ]};
     if (!settings.active) { log('⏸ BOT OFF'); return; }
 
