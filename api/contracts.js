@@ -7,15 +7,28 @@ const BASE = 'https://api.bitget.com';
 // Cache: { BTCUSDT: { pricePlace: 1, volumePlace: 3, minTradeNum: 0.001 }, ... }
 const contracts = {};
 
-async function loadContracts() {
+async function loadContracts(attempt = 1) {
+  const MAX_RETRIES = 3;
+  console.log(`📋 loadContracts tentativa ${attempt}/${MAX_RETRIES}...`);
+
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10000);
-    const r = await fetch(`${BASE}/api/v2/mix/market/contracts?productType=USDT-FUTURES`, {
-      signal: ctrl.signal,
-    });
+    const url = `${BASE}/api/v2/mix/market/contracts?productType=USDT-FUTURES`;
+    console.log(`📋 Fetch: ${url}`);
+
+    const r = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
-    const d = await r.json();
+    console.log(`📋 Response status: ${r.status}`);
+
+    const text = await r.text();
+    let d;
+    try {
+      d = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('❌ Contracts JSON parse erro:', text.slice(0, 200));
+      throw parseErr;
+    }
 
     if (d.code === '00000' && Array.isArray(d.data)) {
       for (const c of d.data) {
@@ -26,12 +39,26 @@ async function loadContracts() {
           sizeMultiplier: parseFloat(c.sizeMultiplier) || 1,
         };
       }
-      console.log(`📋 Contracts carregados: ${Object.keys(contracts).length} símbolos`);
+      console.log(`✅ Contracts carregados: ${Object.keys(contracts).length} símbolos`);
+      // Log amostra para confirmar
+      const sample = contracts['BTCUSDT'];
+      if (sample) console.log(`   BTCUSDT: pricePlace=${sample.pricePlace} volumePlace=${sample.volumePlace} minQty=${sample.minTradeNum}`);
+      const sample2 = contracts['ETHUSDT'];
+      if (sample2) console.log(`   ETHUSDT: pricePlace=${sample2.pricePlace} volumePlace=${sample2.volumePlace} minQty=${sample2.minTradeNum}`);
     } else {
-      console.error('❌ Contracts resposta inesperada:', d.msg || d.code);
+      console.error('❌ Contracts resposta inesperada:', d.code, d.msg);
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+        return loadContracts(attempt + 1);
+      }
     }
   } catch (e) {
-    console.error('❌ Contracts load erro:', e.message);
+    console.error(`❌ Contracts load erro (tentativa ${attempt}):`, e.message);
+    if (attempt < MAX_RETRIES) {
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+      return loadContracts(attempt + 1);
+    }
+    console.error('❌ Contracts: todas as tentativas falharam — a usar fallback heurístico');
   }
 }
 
