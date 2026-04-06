@@ -8,6 +8,12 @@ const { getMinQty } = require('./contracts');
 
 const fetch = global.fetch || require('node-fetch');
 
+// ══════════════════════════════════════════════════════════════
+// TEST_MODE: relaxa todos os filtros para testar fluxo SL/TP
+// DESLIGAR após confirmar 🛡️ SL confirmado e 🎯 TP confirmado
+// ══════════════════════════════════════════════════════════════
+const TEST_MODE = true;
+
 // ===== TRAIL_STATE persistence (shared Redis) =====
 async function persistTrailState() {
   if (!redis) return;
@@ -87,13 +93,19 @@ function analyzeBots(candles, candles5m) {
 
   log(`🌍 ${regime} | 🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
 
-  if (used.length < 2) return null;
+  // TEST_MODE: 1 bot basta, thresholds baixos
+  // PRODUÇÃO: mínimo 2 bots, 0.55/0.65 conf, 0.10 diff
+  const minBots = TEST_MODE ? 1 : 2;
+  if (used.length < minBots) return null;
 
   const diff = Math.abs(buy - sell);
 
-  const minConf = regime === 'VOLATILE' ? 0.65 : 0.55;
-  if (buy  > sell && buy  > minConf && diff > 0.10) return { side: 'BUY',  bots: used, buy, sell, regime };
-  if (sell > buy  && sell > minConf && diff > 0.10) return { side: 'SELL', bots: used, buy, sell, regime };
+  const minConf = TEST_MODE ? 0.30
+                : regime === 'VOLATILE' ? 0.65 : 0.55;
+  const minDiff = TEST_MODE ? 0.0 : 0.10;
+
+  if (buy  > sell && buy  > minConf && diff > minDiff) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (sell > buy  && sell > minConf && diff > minDiff) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
@@ -145,6 +157,7 @@ module.exports = async function runBot() {
     if (!global._trailLoaded) {
       await loadTrailState();
       global._trailLoaded = true;
+      if (TEST_MODE) log('🧪🧪🧪 TEST_MODE ACTIVO — filtros relaxados, 1 bot basta, sem EMA50/contra-tendência 🧪🧪🧪');
     }
 
     // ── Settings ──
@@ -350,7 +363,7 @@ module.exports = async function runBot() {
       const price = closes.at(-1);
       if (!price || price <= 0 || isNaN(price)) { log(`⚠️ ${sym} price inválido`); continue; }
 
-      if (!STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
+      if (!TEST_MODE && !STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
 
       const decision = analyzeBots(candles5m, candles15m);
       if (!decision) { log('❌ sem consenso'); continue; }
@@ -359,7 +372,7 @@ module.exports = async function runBot() {
       const decSide   = decision.side === 'BUY' ? 'long' : 'short';
       const topScore  = decision.side === 'BUY' ? decision.buy : decision.sell;
       const strongSignal = topScore > 0.85 && decision.bots.length >= 3;
-      if (positions.length > 0 && openSides.every(s => s === decSide) && !strongSignal) {
+      if (!TEST_MODE && positions.length > 0 && openSides.every(s => s === decSide) && !strongSignal) {
         log(`⚠️ ${sym} correlação — já tens ${positions.length} ${decSide}(s)`);
         continue;
       }
@@ -367,33 +380,38 @@ module.exports = async function runBot() {
         log(`⚡ ${sym} sinal forte (${topScore.toFixed(2)}) — override correlação`);
       }
 
-      // Filtros de contexto + EMA50
+      // Filtros de contexto + EMA50 — DESLIGADOS em TEST_MODE
       const regime15m = decision.regime || 'RANGE';
       const topDiff = Math.abs(decision.buy - decision.sell);
-      if (regime15m === 'VOLATILE' && topDiff < 0.25) {
-        log(`🚫 ${sym} VOLATILE fraco (diff:${topDiff.toFixed(2)}) — bloqueado`);
-        continue;
-      }
-      if (candles15m && candles15m.length >= 50) {
-        const closes15m  = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
-        const context15m = STRAT.contextFilter(closes15m);
-        if (context15m !== 'NEUTRAL' && context15m !== decision.side) {
-          log(`🚫 ${sym} contra-tendência (15m:${context15m} 5m:${decision.side})`);
-          continue;
-        }
 
-        const ema50now  = STRAT.ema50(closes15m);
-        const ema50prev = STRAT.ema50(closes15m.slice(0, -1));
-        const slope = (ema50now - ema50prev) / ema50prev;
+      if (!TEST_MODE) {
+        if (regime15m === 'VOLATILE' && topDiff < 0.25) {
+          log(`🚫 ${sym} VOLATILE fraco (diff:${topDiff.toFixed(2)}) — bloqueado`);
+          continue;
+        }
+        if (candles15m && candles15m.length >= 50) {
+          const closes15m  = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
+          const context15m = STRAT.contextFilter(closes15m);
+          if (context15m !== 'NEUTRAL' && context15m !== decision.side) {
+            log(`🚫 ${sym} contra-tendência (15m:${context15m} 5m:${decision.side})`);
+            continue;
+          }
 
-        if (decision.side === 'BUY' && (price < ema50now || slope < 0)) {
-          log(`🚫 ${sym} BUY bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
-          continue;
+          const ema50now  = STRAT.ema50(closes15m);
+          const ema50prev = STRAT.ema50(closes15m.slice(0, -1));
+          const slope = (ema50now - ema50prev) / ema50prev;
+
+          if (decision.side === 'BUY' && (price < ema50now || slope < 0)) {
+            log(`🚫 ${sym} BUY bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
+            continue;
+          }
+          if (decision.side === 'SELL' && (price > ema50now || slope > 0)) {
+            log(`🚫 ${sym} SELL bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
+            continue;
+          }
         }
-        if (decision.side === 'SELL' && (price > ema50now || slope > 0)) {
-          log(`🚫 ${sym} SELL bloqueado — preço:${price.toFixed(4)} EMA50:${ema50now.toFixed(4)} slope:${(slope*100).toFixed(4)}%`);
-          continue;
-        }
+      } else {
+        log(`🧪 TEST_MODE: filtros 15m/EMA50/VOLATILE desligados`);
       }
 
       // ── Dimensionamento dinâmico por regime ──
