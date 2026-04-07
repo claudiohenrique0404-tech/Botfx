@@ -190,7 +190,7 @@ module.exports = async function runScalper() {
       }
       // Smart time stop: trade morta (sem momentum nenhum após 8 min) — sinal expirou
       // Só fecha se max NUNCA atingiu lucro real (>0.10%) — não toca em winners
-      else if (timeOpen > 8 * 60_000 && maxPnl < 0.20) {
+      else if (timeOpen > 5 * 60_000 && maxPnl < 0.25) {
         shouldClose = true;
         reason = `DEAD ${Math.round(timeOpen/60000)}min max:${maxPnl.toFixed(2)}%`;
       }
