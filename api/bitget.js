@@ -146,6 +146,19 @@ module.exports = async (req, res) => {
       return res.json(open);
     }
 
+    // ===== TICKERS (preços actuais — combate stale candles) =====
+    if (action === 'tickers') {
+      const d = await bg('GET', '/api/v2/mix/market/tickers?productType=USDT-FUTURES');
+      // Devolver dict { BTCUSDT: lastPrice, ETHUSDT: lastPrice, ... }
+      const map = {};
+      for (const t of (d.data || [])) {
+        // Bitget v2 pode usar lastPr, last, ou markPrice — tentar todos
+        const price = parseFloat(t.lastPr || t.last || t.markPrice || t.indexPrice || 0);
+        if (price > 0 && t.symbol) map[t.symbol] = price;
+      }
+      return res.json(map);
+    }
+
     // ===== SETUP SYMBOLS (pré-configurar margin+leverage no arranque) =====
     if (action === 'setupSymbols') {
       const pt  = 'USDT-FUTURES';
