@@ -10,7 +10,7 @@ const { getMinQty } = require('./contracts');
 // CONFIG
 // ══════════════════════════════════════════════════════════════
 const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'AVAXUSDT'];
-const LEVERAGE    = 3;
+const LEVERAGE    = 10;
 const MAX_POS     = 1;
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
 const KILL_SWITCH = -4;         // % daily loss
@@ -21,6 +21,7 @@ const MIN_SCORE   = 1.00;
 let START_EQUITY = null;
 const STATE = {};
 let PREV_POSITIONS = [];
+const CANDLES_5M_CACHE = {}; // { sym: { data, time } } — 5m candles cache
 if (!global.SCALP_LOGS) global.SCALP_LOGS = [];
 const LOGS = global.SCALP_LOGS;
 
@@ -233,36 +234,65 @@ module.exports = async function runScalper() {
         await saveEquity(equity);
       }
     }
+    // Adoptar posições órfãs (existem na Bitget mas não em STATE — possível restart)
+    for (const pos of myPositions) {
+      if (!STATE[pos.symbol]?.openTime) {
+        STATE[pos.symbol] = {
+          lastOpen: Date.now(),
+          openTime: parseInt(pos.cTime || Date.now()),
+          bots: ['adopted'],
+          slPct: 0.0020, // fallback conservador
+          maxPnl: 0,
+        };
+        log(`🔄 Adoptada posição órfã: ${pos.symbol} ${pos.holdSide}`);
+      }
+    }
+    await saveState();
+
     // Só guardar posições do scalper para detecção de fechos
     const scalperPositions = myPositions.filter(p => STATE[p.symbol]?.openTime);
     PREV_POSITIONS = scalperPositions.slice();
 
     // ── Procurar scalps ──
-    // Contar só posições abertas PELO SCALPER (rastreadas em STATE)
-    // Ignora posições do swing bot nos mesmos símbolos
-    const activeScalps = myPositions.filter(p => STATE[p.symbol]?.openTime).length;
+    // CRÍTICO: contar TODAS as posições nos símbolos (não só STATE)
+    // Previne double-entry após restart quando STATE está vazio
+    const activeScalps = myPositions.length;
     if (activeScalps >= MAX_POS) return;
 
-    // Filtrar candidatos (só verificar posições do scalper, não do swing)
+    // Filtrar candidatos: bloquear se há QUALQUER posição (mesmo sem STATE)
     const candidates = SYMBOLS.filter(sym => {
-      if (scalperPositions.find(p => p.symbol === sym)) return false;
+      if (myPositions.find(p => p.symbol === sym)) return false;
       if (STATE[sym]?.lastOpen && Date.now() - STATE[sym].lastOpen < COOLDOWN_MS) return false;
       return true;
     });
 
     if (candidates.length === 0) return;
 
-    // Fetch 1m + 5m candles + tickers (preços actuais) — todos em paralelo
-    // Tickers combatem stale data dos history-candles (que só devolve velas FECHADAS)
-    const candleFetches = candidates.flatMap(sym => [
-      callApi({ action: 'candles', symbol: sym, tf: '1m' }),
-      callApi({ action: 'candles', symbol: sym, tf: '5m' }),
-    ]);
-    const [tickersResult, ...candleResults] = await Promise.all([
+    // Fetch 1m candles + tickers — paralelo
+    // Cache de 5m: candles 5m só mudam a cada 5min, cache válido 30s
+    const now = Date.now();
+    const symbolsNeed5m = candidates.filter(sym => {
+      const cached = CANDLES_5M_CACHE[sym];
+      return !cached || (now - cached.time > 30000);
+    });
+
+    const fetches = [
       callApi({ action: 'tickers' }),
-      ...candleFetches,
-    ]);
-    const tickers = tickersResult || {};
+      ...candidates.map(sym => callApi({ action: 'candles', symbol: sym, tf: '1m' })),
+      ...symbolsNeed5m.map(sym => callApi({ action: 'candles', symbol: sym, tf: '5m' })),
+    ];
+    const results = await Promise.all(fetches);
+
+    const tickers = results[0] || {};
+    const candles1mResults = results.slice(1, 1 + candidates.length);
+    const candles5mFresh = results.slice(1 + candidates.length);
+
+    // Actualizar cache 5m com dados frescos
+    symbolsNeed5m.forEach((sym, i) => {
+      if (candles5mFresh[i]) {
+        CANDLES_5M_CACHE[sym] = { data: candles5mFresh[i], time: now };
+      }
+    });
 
     // Analisar todos e escolher o melhor
     let bestSignal = null;
@@ -273,8 +303,8 @@ module.exports = async function runScalper() {
     for (let i = 0; i < candidates.length; i++) {
       const sym = candidates[i];
       const short = sym.replace('USDT', '');
-      const candles1m = candleResults[i * 2] || null;
-      const candles5m = candleResults[i * 2 + 1] || null;
+      const candles1m = candles1mResults[i] || null;
+      const candles5m = CANDLES_5M_CACHE[sym]?.data || null;
       const livePrice = tickers[sym] || 0;
 
       if (!candles1m || candles1m.length < 20) { scanInfo.push(`${short}:no_data`); continue; }
