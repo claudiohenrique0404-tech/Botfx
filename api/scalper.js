@@ -180,7 +180,10 @@ module.exports = async function runScalper() {
       }
 
       // SL fallback (safety net)
-      const slFallback = STATE[sym].slPct ? (STATE[sym].slPct * 100) : 0.15;
+      const slFallback = Math.min(
+      STATE[sym].slPct ? (STATE[sym].slPct * 100) : 0.15,
+      0.25
+      );
       let shouldClose = false;
       let reason = '';
 
