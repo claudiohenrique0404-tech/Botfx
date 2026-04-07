@@ -273,7 +273,12 @@ function calcDynamicSLTP(candles) {
   // SL = 1.2 ATR, TP = 2.5 ATR
   // Mínimos garantem que TP cobre fees mesmo em mercado calmo
   const slPct = Math.max(0.0015, Math.min(0.0035, atrPct * 1.2));  // 0.15% — 0.35%
-  const tpPct = Math.max(0.0040, Math.min(0.0080, atrPct * 2.5));  // 0.40% — 0.80%
+  const FEES = 0.0012;
+  const EDGE = 0.0006;
+
+  const MIN_TP = FEES + EDGE; // 0.18%
+
+  const tpPct = Math.max(MIN_TP, Math.min(0.010, atrPct * 3));  // 0.40% — 0.80%
 
   return { slPct, tpPct };
 }
