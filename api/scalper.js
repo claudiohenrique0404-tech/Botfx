@@ -159,7 +159,7 @@ module.exports = async function runScalper() {
 
       const maxPnl = STATE[sym].maxPnl;
       const timeOpen = Date.now() - STATE[sym].openTime;
-      const trailActive = maxPnl >= 0.18; // activa assim que cobre fees + edge
+      const trailActive = maxPnl >= 0.35; // activa assim que cobre fees + edge
 
       // Floor adaptativo agressivo: lock-in mais cedo, deixa correr lucros grandes
       // max 0.18% → exit 0.15%  (lucro mínimo garantido)
@@ -168,8 +168,8 @@ module.exports = async function runScalper() {
       // max 0.30% → exit 0.255%
       // max 0.50% → exit 0.42%
       // max 1.00% → exit 0.84%
-      const margin = Math.max(0.04, maxPnl * 0.16);
-      const trailFloor = Math.max(0.15, maxPnl - margin);
+      const margin = Math.max(0.05, maxPnl * 0.25);
+      const trailFloor = maxPnl - margin;
 
       // Log a cada 30s (ou a cada 5s se trailing activo — acompanhar de perto)
       const logInterval = trailActive ? 5000 : 30000;
@@ -180,7 +180,7 @@ module.exports = async function runScalper() {
       }
 
       // SL fallback (safety net)
-      const slFallback = STATE[sym].slPct ? (STATE[sym].slPct * 100 + 0.05) : 0.25;
+      const slFallback = STATE[sym].slPct ? (STATE[sym].slPct * 100) : 0.15;
       let shouldClose = false;
       let reason = '';
 
