@@ -9,7 +9,7 @@ const { getMinQty } = require('./contracts');
 // ══════════════════════════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════════════════════════
-const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+const SYMBOLS     = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'AVAXUSDT'];
 const LEVERAGE    = 3;
 const MAX_POS     = 1;
 const COOLDOWN_MS = 60_000;     // 60s por símbolo
