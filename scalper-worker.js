@@ -59,7 +59,7 @@ async function start() {
       running = false;
     }
 
-    await sleep(3000); // 3s — candles 1m só mudam 1x/min, 3s é suficiente
+    await sleep(1000); // 1s — captura picos micro melhor que 3s
   }
 }
 
