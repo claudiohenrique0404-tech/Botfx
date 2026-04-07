@@ -158,12 +158,14 @@ module.exports = async function runScalper() {
 
       const maxPnl = STATE[sym].maxPnl;
       const timeOpen = Date.now() - STATE[sym].openTime;
-      const trailActive = maxPnl >= 0.18; // activa assim que cobre fees
+      const trailActive = maxPnl >= 0.20; // só activa quando há lucro real para proteger
+      // Floor dinâmico: dá 0.10% de margem ao max, mínimo 0.15% (acima de fees 0.12%)
+      const trailFloor = Math.max(0.15, maxPnl - 0.10);
 
       // Log a cada 30s (ou a cada 5s se trailing activo — acompanhar de perto)
       const logInterval = trailActive ? 5000 : 30000;
       if (!STATE[sym].lastLog || Date.now() - STATE[sym].lastLog > logInterval) {
-        const trailInfo = trailActive ? ` 🔒TRAIL(exit:${(maxPnl*0.70).toFixed(2)}%)` : '';
+        const trailInfo = trailActive ? ` 🔒TRAIL(exit:${trailFloor.toFixed(2)}%)` : '';
         log(`📊 ${sym} ${holdSide} PnL:${pnl.toFixed(3)}% max:${maxPnl.toFixed(2)}%${trailInfo} t:${Math.round(timeOpen/1000)}s`);
         STATE[sym].lastLog = Date.now();
       }
@@ -177,13 +179,17 @@ module.exports = async function runScalper() {
         shouldClose = true;
         reason = `SL fallback ${pnl.toFixed(2)}%`;
       }
-      // Trailing: activa a 0.18% (acima de fees) — recuo de 30% fecha
-      // 0.18% max → exit 0.126% (acima de fees 0.12%)
-      // 0.25% max → exit 0.175% (lucro claro)
-      // 0.40% max → exit 0.28% (bom lucro)
-      else if (maxPnl >= 0.18 && pnl < maxPnl * 0.70) {
+      // Smart time stop: trade morta (sem momentum nenhum após 8 min) — sinal expirou
+      // Só fecha se max NUNCA atingiu lucro real (>0.10%) — não toca em winners
+      else if (timeOpen > 8 * 60_000 && maxPnl < 0.10) {
         shouldClose = true;
-        reason = `TRAIL (pico:${maxPnl.toFixed(2)}%→${pnl.toFixed(2)}%)`;
+        reason = `DEAD ${Math.round(timeOpen/60000)}min max:${maxPnl.toFixed(2)}%`;
+      }
+      // Trailing com floor dinâmico — só activa com lucro real (max ≥ 0.20%)
+      // max 0.20% → exit 0.15% | max 0.40% → exit 0.30% | max 0.60% → exit 0.50%
+      else if (trailActive && pnl < trailFloor) {
+        shouldClose = true;
+        reason = `TRAIL (pico:${maxPnl.toFixed(2)}%→${pnl.toFixed(2)}% floor:${trailFloor.toFixed(2)}%)`;
       }
 
       if (shouldClose) {
@@ -238,25 +244,50 @@ module.exports = async function runScalper() {
 
     if (candidates.length === 0) return;
 
-    // Fetch 1m + 5m candles de todos os candidatos em paralelo
-    const fetches = candidates.flatMap(sym => [
+    // Fetch 1m + 5m candles + tickers (preços actuais) — todos em paralelo
+    // Tickers combatem stale data dos history-candles (que só devolve velas FECHADAS)
+    const candleFetches = candidates.flatMap(sym => [
       callApi({ action: 'candles', symbol: sym, tf: '1m' }),
       callApi({ action: 'candles', symbol: sym, tf: '5m' }),
     ]);
-    const results = await Promise.allSettled(fetches);
+    const [tickersResult, ...candleResults] = await Promise.all([
+      callApi({ action: 'tickers' }),
+      ...candleFetches,
+    ]);
+    const tickers = tickersResult || {};
 
     // Analisar todos e escolher o melhor
     let bestSignal = null;
     let bestSym    = null;
+    let bestPrice  = 0;
     const scanInfo = [];
 
     for (let i = 0; i < candidates.length; i++) {
       const sym = candidates[i];
       const short = sym.replace('USDT', '');
-      const candles1m = results[i * 2].status === 'fulfilled' ? results[i * 2].value : null;
-      const candles5m = results[i * 2 + 1].status === 'fulfilled' ? results[i * 2 + 1].value : null;
+      const candles1m = candleResults[i * 2] || null;
+      const candles5m = candleResults[i * 2 + 1] || null;
+      const livePrice = tickers[sym] || 0;
 
       if (!candles1m || candles1m.length < 20) { scanInfo.push(`${short}:no_data`); continue; }
+
+      // CRÍTICO: substituir close da última vela com preço LIVE
+      // O history-candles devolve velas fechadas (até 60s atrás) — análise vê dados velhos
+      // Com livePrice, todos os indicadores (VWAP, EMAs, momentum) vêem o preço real
+      if (livePrice > 0) {
+        const last = candles1m[candles1m.length - 1];
+        // Verificar se há divergência grande (>0.3%) — se sim, candle está stale
+        const candleClose = last.c;
+        const drift = Math.abs(livePrice - candleClose) / candleClose;
+        if (drift > 0.003) {
+          // Candle muito desfasado — actualizar close, high e low se necessário
+          last.c = livePrice;
+          if (livePrice > last.h) last.h = livePrice;
+          if (livePrice < last.l) last.l = livePrice;
+        } else {
+          last.c = livePrice;
+        }
+      }
 
       if (!SCALP.scalpFilter(candles1m)) { scanInfo.push(`${short}:filtered`); continue; }
 
@@ -274,6 +305,7 @@ module.exports = async function runScalper() {
       if (!bestSignal || signal.score > bestSignal.score) {
         bestSignal = signal;
         bestSym    = sym;
+        bestPrice  = livePrice || candles1m.at(-1).c;
       }
     }
 
@@ -285,7 +317,7 @@ module.exports = async function runScalper() {
     log(`⚡ ${bestSignal.side} ${bestSym} score:${bestSignal.score.toFixed(2)} [${bestSignal.bots.join(',')}] SL:${(bestSignal.slPct*100).toFixed(2)}% TP:${(bestSignal.tpPct*100).toFixed(2)}%`);
 
     const symMinQty = getMinQty(bestSym);
-    const price = (await callApi({ action: 'candles', symbol: bestSym, tf: '1m' }))?.at(-1)?.c || 0;
+    const price = bestPrice; // já temos o preço live do scan
     if (!price) return;
 
     let orderValue = Math.max(15, available * 0.02);
