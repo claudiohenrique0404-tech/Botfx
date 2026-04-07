@@ -158,14 +158,16 @@ module.exports = async function runScalper() {
 
       const maxPnl = STATE[sym].maxPnl;
       const timeOpen = Date.now() - STATE[sym].openTime;
-      const trailActive = maxPnl >= 0.20; // só activa quando há lucro real para proteger
+      const trailActive = maxPnl >= 0.18; // activa assim que cobre fees + edge
 
-      // Floor adaptativo: apertado para lucros pequenos, mais solto para lucros grandes
-      // max 0.20% → margem 0.04% → exit 0.16%  (lock-in agressivo)
-      // max 0.30% → margem 0.06% → exit 0.24%  (lock-in agressivo)
-      // max 0.50% → margem 0.10% → exit 0.40%  (deixa respirar)
-      // max 1.00% → margem 0.20% → exit 0.80%  (deixa correr)
-      const margin = Math.max(0.04, Math.min(0.20, maxPnl * 0.20));
+      // Floor adaptativo agressivo: lock-in mais cedo, deixa correr lucros grandes
+      // max 0.18% → exit 0.15%  (lucro mínimo garantido)
+      // max 0.20% → exit 0.16%
+      // max 0.25% → exit 0.21%
+      // max 0.30% → exit 0.255%
+      // max 0.50% → exit 0.42%
+      // max 1.00% → exit 0.84%
+      const margin = Math.max(0.04, maxPnl * 0.16);
       const trailFloor = Math.max(0.15, maxPnl - margin);
 
       // Log a cada 30s (ou a cada 5s se trailing activo — acompanhar de perto)
