@@ -194,7 +194,7 @@ function detectRegime(closes) {
   const mean = slice.reduce((a, b) => a + b) / slice.length;
   const vol  = stddev(slice) / mean;
 
-  if (vol > 0.008) return 'VOLATILE';
+  if (vol > 0.012) return 'VOLATILE';
 
   const emaAligned = (e9 > e21 && e21 > e50) || (e9 < e21 && e21 < e50);
   if (emaAligned && trendStrength > 0.001) return 'TREND';
