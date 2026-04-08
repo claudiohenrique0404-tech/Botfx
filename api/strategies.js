@@ -48,7 +48,7 @@ function trendBot(closes) {
   const price = closes.at(-1);
   const strength = Math.abs(e9 - e21) / price;
 
-  if (strength < 0.0035) return null; // só tendências com força real
+  if (strength < 0.0050) return null; // só tendências com força real
 
   const confidence = Math.min(1, 0.65 + strength * 12);
 
@@ -66,8 +66,8 @@ function rsiBot(closes) {
   const lastClose = closes.at(-1);
   const prevClose = closes.at(-2);
   const recovery = prevClose > 0 ? (lastClose - prevClose) / prevClose : 0;
-  if (r < 35 && recovery >  0.0005) return { side: 'BUY',  confidence: 0.5 + (35 - r) / 100, bot: 'rsi' };
-  if (r > 65 && recovery < -0.0005) return { side: 'SELL', confidence: 0.5 + (r - 65) / 100, bot: 'rsi' };
+  if (r < 32 && recovery >  0.0015) return { side: 'BUY',  confidence: 0.5 + (35 - r) / 100, bot: 'rsi' };
+  if (r > 68 && recovery < -0.0015) return { side: 'SELL', confidence: 0.5 + (r - 65) / 100, bot: 'rsi' };
   return null;
 }
 
@@ -79,8 +79,8 @@ function momentumBot(closes) {
   const longAvg  = closes.slice(-20).reduce((a, b) => a + b) / 20;
   const mom = (shortAvg - longAvg) / longAvg;
 
-  if (mom >  0.0012) return { side: 'BUY',  confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
-  if (mom < -0.0012) return { side: 'SELL', confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
+  if (mom >  0.0018) return { side: 'BUY',  confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
+  if (mom < -0.0018) return { side: 'SELL', confidence: Math.min(0.9, 0.6 + Math.abs(mom) * 20), bot: 'momentum' };
   return null;
 }
 
@@ -229,7 +229,7 @@ function marketFilter(closes) {
   const mean  = slice.reduce((a, b) => a + b) / 20;
   const vol   = stddev(slice) / mean;
 
-  if (vol < 0.0003) return false;
+  if (vol < 0.0008) return false;
   return true;
 }
 
@@ -249,12 +249,9 @@ function contextFilter(closesHigher) {
 
 // ═══ EXIT BOT ═══════════════════════════════════════════════
 function exitBot(pnl, timeOpen, maxPnl) {
-  // Trailing só quando lucro cobre fees (>0.5%)
-  // Abaixo disso, SL/TP na Bitget gere a saída
-  if (maxPnl >= 1.0 && pnl < maxPnl * 0.7) return 'TRAIL'; // recuo 30% de 1%+ 
-  if (maxPnl >= 0.5 && pnl < maxPnl * 0.6) return 'TRAIL'; // recuo 40% de 0.5%+
-
-  // Sem TIME_WEAK / TIME — fechavam com PnL que não cobria fees
+  // Trailing ajustado a SL 0.8% / TP largos
+  if (maxPnl >= 1.5 && pnl < maxPnl * 0.7) return 'TRAIL'; // recuo 30% de 1.5%+
+  if (maxPnl >= 0.9 && pnl < maxPnl * 0.6) return 'TRAIL'; // recuo 40% de 0.9%+
   return null;
 }
 
