@@ -30,7 +30,8 @@ if (!global.LOGS) global.LOGS = [];
 let LOGS = global.LOGS;
 
 let START_EQUITY = null;
-const MAX_DAILY_LOSS = -6; // %
+let START_EQUITY_DATE = null;
+const MAX_DAILY_LOSS = -7; // %
 const TRAIL_STATE = {};
 let PREV_POSITIONS = [];
 
@@ -79,13 +80,14 @@ function analyzeBots(candles, candles5m) {
 
   log(`🌍 ${regime} | 🗳️ BUY:${buy.toFixed(2)} SELL:${sell.toFixed(2)} [${used.join(',')||'—'}]`);
 
-  if (used.length < 2) return null;
+  if (used.length < 3) return null;
 
   const diff = Math.abs(buy - sell);
-  const minConf = regime === 'VOLATILE' ? 0.65 : 0.60;
+  const minConf = regime === 'VOLATILE' ? 0.85 : regime === 'TREND' ? 0.75 : 0.80;
+  const minDiff = regime === 'VOLATILE' ? 0.40 : 0.28;
 
-  if (buy  > sell && buy  > minConf && diff > 0.15) return { side: 'BUY',  bots: used, buy, sell, regime };
-  if (sell > buy  && sell > minConf && diff > 0.15) return { side: 'SELL', bots: used, buy, sell, regime };
+  if (buy  > sell && buy  > minConf && diff > minDiff) return { side: 'BUY',  bots: used, buy, sell, regime };
+  if (sell > buy  && sell > minConf && diff > minDiff) return { side: 'SELL', bots: used, buy, sell, regime };
 
   return null;
 }
@@ -119,12 +121,23 @@ module.exports = async function runBot() {
 
     if (!global._trailLoaded) {
       await loadTrailState();
+      if (redis) {
+        try {
+          const todayStr = new Date().toLocaleDateString('pt-PT', { timeZone: 'Europe/Lisbon' });
+          const saved = await redis.get('botfx:startEquity');
+          if (saved?.date === todayStr) {
+            START_EQUITY = saved.equity;
+            START_EQUITY_DATE = saved.date;
+            log(`♻️ START_EQUITY recuperado: $${saved.equity.toFixed(2)}`);
+          }
+        } catch {}
+      }
       global._trailLoaded = true;
-      log('🔧 SWING MODE | 5m + 15m | SL:0.6% TP:dinâmico | MinConf:0.60 Diff:0.15');
+      log('🎯 SWING SNIPER | 15m+1H | 1 slot | lev 5x | sizing % equity | SL 0.8%');
     }
 
     const settings = global.BOT_SETTINGS || { active: true, lev: 5, symbols: [
-      'XRPUSDT','BNBUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT','ATOMUSDT'
+      'BTCUSDT','ETHUSDT','SOLUSDT'
     ]};
     if (!settings.active) { log('⏸ BOT OFF'); return; }
 
@@ -136,11 +149,17 @@ module.exports = async function runBot() {
     const available = parseFloat(balanceData[0].available  || 0);
     if (equity <= 0) { log('❌ equity'); return; }
 
-    if (!START_EQUITY) START_EQUITY = equity;
+    const today = new Date().toLocaleDateString('pt-PT', { timeZone: 'Europe/Lisbon' });
+    if (!START_EQUITY || START_EQUITY_DATE !== today) {
+      START_EQUITY = equity;
+      START_EQUITY_DATE = today;
+      log(`📅 Novo dia | START_EQUITY: $${equity.toFixed(2)}`);
+      if (redis) { try { await redis.set('botfx:startEquity', { equity, date: today }); } catch {} }
+    }
     const pnlDay = ((equity - START_EQUITY) / START_EQUITY) * 100;
-    log(`💰 eq:${equity.toFixed(2)} avail:${available.toFixed(2)} | Day: ${pnlDay.toFixed(2)}%`);
+    log(`💰 eq:$${equity.toFixed(2)} avail:$${available.toFixed(2)} | Day: ${pnlDay.toFixed(2)}% (start $${START_EQUITY.toFixed(2)})`);
 
-    if (pnlDay <= MAX_DAILY_LOSS) { log('🛑 KILL SWITCH'); return; }
+    if (pnlDay <= MAX_DAILY_LOSS) { log(`🛑 KILL SWITCH ${pnlDay.toFixed(2)}%`); return; }
 
     // ── Posições ──
     const positions = await callApi(base, { action: 'positions' });
@@ -164,8 +183,8 @@ module.exports = async function runBot() {
       if (!TRAIL_STATE[symbol].openTime) TRAIL_STATE[symbol].openTime = parseInt(pos.cTime || Date.now());
       if (pnl > TRAIL_STATE[symbol].maxPnl) TRAIL_STATE[symbol].maxPnl = pnl;
 
-      // Partial TP: 50% @ +0.6%
-      if (pnl >= 0.6 && !TRAIL_STATE[symbol].partialDone) {
+      // Partial TP: 50% @ +1.0%
+      if (pnl >= 1.0 && !TRAIL_STATE[symbol].partialDone) {
         TRAIL_STATE[symbol].partialDone = true;
         const halfSize = (size / 2).toFixed(4);
         try {
@@ -177,8 +196,8 @@ module.exports = async function runBot() {
         await new Promise(r => setTimeout(r, 300));
       }
 
-      // Breakeven @ +0.3%
-      if (pnl >= 0.3 && !TRAIL_STATE[symbol].beSet) {
+      // Breakeven @ +0.5%
+      if (pnl >= 0.5 && !TRAIL_STATE[symbol].beSet) {
         TRAIL_STATE[symbol].beSet = true;
         const beBuf = entry * 0.001;
         const bePrice = holdSide === 'long' ? entry + beBuf : entry - beBuf;
@@ -203,7 +222,7 @@ module.exports = async function runBot() {
       let shouldClose = false;
       let closeReason = '';
 
-      if (pnl <= -0.5) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}%`; }
+      if (pnl <= -0.8) { shouldClose = true; closeReason = `SL hard ${pnl.toFixed(2)}%`; }
       else if (exitReason === 'TRAIL') { shouldClose = true; closeReason = `TRAIL (${maxPnl.toFixed(2)}%→${pnl.toFixed(2)}%)`; }
 
       if (shouldClose) {
@@ -239,7 +258,7 @@ module.exports = async function runBot() {
     PREV_POSITIONS = positions.slice();
 
     // ── Novos sinais ──
-    const MAX_POSITIONS = 2;
+    const MAX_POSITIONS = 1;
     if (positions.length >= MAX_POSITIONS) {
       log(`⏸ ${positions.length}/${MAX_POSITIONS} — aguardar`);
       return;
@@ -252,23 +271,23 @@ module.exports = async function runBot() {
       if (openSymbols.includes(sym)) continue;
 
       const symState = TRAIL_STATE[sym];
-      if (symState?.lastOpen && Date.now() - symState.lastOpen < 120000) {
+      if (symState?.lastOpen && Date.now() - symState.lastOpen < 900000) {
         log(`⏳ ${sym} cooldown`);
         continue;
       }
 
       log(`🔍 ${sym}`);
 
-      const [r5m, r15m] = await Promise.allSettled([
-        callApi(base, { action: 'candles', symbol: sym, tf: '5m' }),
+      const [r15m, r1h] = await Promise.allSettled([
         callApi(base, { action: 'candles', symbol: sym, tf: '15m' }),
+        callApi(base, { action: 'candles', symbol: sym, tf: '1H' }),
       ]);
-      const candles5m  = r5m.status  === 'fulfilled' ? r5m.value  : null;
       const candles15m = r15m.status === 'fulfilled' ? r15m.value : null;
+      const candles1h  = r1h.status  === 'fulfilled' ? r1h.value  : null;
 
-      if (!candles5m?.length) { log('⚠️ sem candles'); continue; }
+      if (!candles15m?.length) { log('⚠️ sem candles'); continue; }
 
-      const closes = candles5m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]).filter(v => v && !isNaN(v));
+      const closes = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]).filter(v => v && !isNaN(v));
       if (closes.length < 50) continue;
 
       const price = closes.at(-1);
@@ -276,55 +295,63 @@ module.exports = async function runBot() {
 
       if (!STRAT.marketFilter(closes)) { log('😴 mercado parado'); continue; }
 
-      const decision = analyzeBots(candles5m, candles15m);
+      const decision = analyzeBots(candles15m, candles1h);
       if (!decision) { log('❌ sem consenso'); continue; }
 
-      // Correlação
-      const decSide = decision.side === 'BUY' ? 'long' : 'short';
-      const topScore = decision.side === 'BUY' ? decision.buy : decision.sell;
-      if (positions.length > 0 && openSides.every(s => s === decSide) && !(topScore > 0.85 && decision.bots.length >= 3)) {
-        log(`⚠️ ${sym} correlação`);
-        continue;
-      }
+      // Filtros 1H
+      const regime1h = decision.regime || 'RANGE';
+      if (regime1h === 'VOLATILE' && Math.abs(decision.buy - decision.sell) < 0.40) { log('🚫 VOLATILE fraco'); continue; }
 
-      // Filtros 15m
-      const regime15m = decision.regime || 'RANGE';
-      if (regime15m === 'VOLATILE' && Math.abs(decision.buy - decision.sell) < 0.25) { log('🚫 VOLATILE fraco'); continue; }
+      if (candles1h?.length >= 50) {
+        const closes1h = candles1h.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
+        const ctx = STRAT.contextFilter(closes1h);
+        if (ctx !== 'NEUTRAL' && ctx !== decision.side) { log(`🚫 contra-tendência 1H`); continue; }
 
-      if (candles15m?.length >= 50) {
-        const closes15m = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]);
-        const ctx = STRAT.contextFilter(closes15m);
-        if (ctx !== 'NEUTRAL' && ctx !== decision.side) { log(`🚫 contra-tendência`); continue; }
-
-        const e50 = STRAT.ema50(closes15m);
-        const e50p = STRAT.ema50(closes15m.slice(0, -1));
+        const e50 = STRAT.ema50(closes1h);
+        const e50p = STRAT.ema50(closes1h.slice(0, -1));
         const slope = (e50 - e50p) / e50p;
-        if (decision.side === 'BUY'  && (price < e50 || slope < 0)) { log('🚫 EMA50'); continue; }
-        if (decision.side === 'SELL' && (price > e50 || slope > 0)) { log('🚫 EMA50'); continue; }
+        if (decision.side === 'BUY'  && (price < e50 || slope < 0)) { log('🚫 EMA50 1H'); continue; }
+        if (decision.side === 'SELL' && (price > e50 || slope > 0)) { log('🚫 EMA50 1H'); continue; }
       }
 
-      // Sizing
+      // ── Sizing equity-based (1 slot, lev 5x) ──
       const confidence = decision.side === 'BUY' ? decision.buy : decision.sell;
-      const strength = Math.max(0, Math.min(1, (confidence - 0.55) / 0.45));
+      const strength = Math.max(0, Math.min(1, (confidence - 0.75) / 0.25));
       const regime = decision.regime || 'RANGE';
-      const regimeMult = regime === 'TREND' ? 1.3 : regime === 'VOLATILE' ? 0.5 : 1.0;
+      const regimeMult = regime === 'TREND' ? 1.0 : regime === 'VOLATILE' ? 0.55 : 0.85;
 
-      let orderValue = available * (0.01 + strength * 0.03) * regimeMult;
-      if (orderValue < 15) orderValue = 15;
-      const cap = available * 0.08;
-      if (cap >= 15 && orderValue > cap) orderValue = cap;
+      const lev = settings.lev || 5;
+      const SAFETY_BUFFER = 0.15;
+      const maxMargin = available * (1 - SAFETY_BUFFER);
+      const marginThis = maxMargin * (0.65 + strength * 0.35) * regimeMult;
+
+      let orderValue = marginThis * lev;
+
+      const MIN_NOTIONAL = 15;
+      if (orderValue < MIN_NOTIONAL) {
+        const forcedMarginPct = (MIN_NOTIONAL / lev) / equity;
+        if (forcedMarginPct > 0.03) {
+          log(`⏭ ${sym} skip — floor $${MIN_NOTIONAL} forçaria ${(forcedMarginPct*100).toFixed(1)}% da equity`);
+          continue;
+        }
+        orderValue = MIN_NOTIONAL;
+      }
+
+      const maxAllowedNotional = available * 0.90 * lev;
+      if (orderValue > maxAllowedNotional) orderValue = maxAllowedNotional;
 
       const symMinQty = getMinQty(sym);
       let qty = Math.ceil((orderValue / price) * 10000) / 10000;
-      if (qty * price < 15) qty = Math.ceil((15 / price) * 10000) / 10000;
       if (qty < symMinQty) qty = symMinQty;
 
-      log(`📊 ${decision.side} conf:${confidence.toFixed(2)} $${orderValue.toFixed(2)} qty:${qty}`);
+      const marginUsed = orderValue / lev;
+      const equityPct = (marginUsed / equity) * 100;
+      log(`🎯 ${decision.side} conf:${confidence.toFixed(2)} str:${strength.toFixed(2)} margem:$${marginUsed.toFixed(2)} (${equityPct.toFixed(1)}% eq) not:$${orderValue.toFixed(2)} qty:${qty}`);
 
       const data = await callApi(base, {
         action: 'order', symbol: sym, side: decision.side,
         quantity: qty.toFixed(4), price, confidence,
-        slPct: 0.006,  // 0.6%
+        slPct: 0.008,  // 0.8%
       });
 
       if (!data || data.code !== '00000') { log(`❌ ${sym}: ${data ? JSON.stringify(data).slice(0,80) : 'timeout'}`); continue; }
