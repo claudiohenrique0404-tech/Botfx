@@ -136,9 +136,14 @@ module.exports = async function runBot() {
       log('🎯 SWING SNIPER | 15m+1H | 1 slot | lev 5x | sizing % equity | SL 0.8%');
     }
 
-    const settings = global.BOT_SETTINGS || { active: true, lev: 5, symbols: [
-      'BTCUSDT','ETHUSDT','SOLUSDT'
-    ]};
+    // FORCE sniper config — ignora qualquer BOT_SETTINGS antigo em memória
+    global.BOT_SETTINGS = {
+      ...(global.BOT_SETTINGS || {}),
+      active: true,
+      lev: 5,
+      symbols: ['BTCUSDT','ETHUSDT','SOLUSDT'],
+    };
+    const settings = global.BOT_SETTINGS;
     if (!settings.active) { log('⏸ BOT OFF'); return; }
 
     // ── Balance ──
