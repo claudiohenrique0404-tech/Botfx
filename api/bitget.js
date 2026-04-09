@@ -102,7 +102,7 @@ module.exports = async (req, res) => {
     // ===== CANDLES =====
     if (action === 'candles') {
       const gran = p.tf === '1m' ? '1m' : (p.tf || '1m');
-      const url  = `${BASE}/api/v2/mix/market/history-candles?symbol=${p.symbol}&productType=usdt-futures&granularity=${gran}&limit=100`;
+      const url  = `${BASE}/api/v2/mix/market/candles?symbol=${p.symbol}&productType=usdt-futures&granularity=${gran}&limit=100`;
       const ctrl  = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 9000);
       let d;
@@ -122,8 +122,9 @@ module.exports = async (req, res) => {
         console.error('CANDLES ERROR:', p.symbol, d.msg);
         return res.json([]);
       }
-      // Bitget history-candles devolve newest-first — inverter para oldest-first
-      const raw = (d.data || []).reverse();
+      // Ordenar por timestamp ascendente (oldest→newest) para ser robusto
+      // independentemente da ordem devolvida pelo endpoint.
+      const raw = (d.data || []).slice().sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
       const normalized = raw.map(c => ({
         ts: parseFloat(c[0]),
         o:  parseFloat(c[1]),
