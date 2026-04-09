@@ -37,7 +37,7 @@ let PREV_POSITIONS = [];
 
 // ⚠️ DIAGNÓSTICO: bloqueia novas ordens enquanto investigamos lag de candles.
 // Quando o diagnóstico terminar, mudar para false para voltar a negociar.
-const DRY_RUN = true;
+const DRY_RUN = false;
 
 // ===== LOGGER =====
 function log(msg) {
