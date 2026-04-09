@@ -35,6 +35,10 @@ const MAX_DAILY_LOSS = -7; // %
 const TRAIL_STATE = {};
 let PREV_POSITIONS = [];
 
+// ⚠️ DIAGNÓSTICO: bloqueia novas ordens enquanto investigamos lag de candles.
+// Quando o diagnóstico terminar, mudar para false para voltar a negociar.
+const DRY_RUN = true;
+
 // ===== LOGGER =====
 function log(msg) {
   const t = new Date().toLocaleTimeString('pt-PT', { hour12: false, timeZone: 'Europe/Lisbon' });
@@ -133,7 +137,7 @@ module.exports = async function runBot() {
         } catch {}
       }
       global._trailLoaded = true;
-      log('🎯 SWING SNIPER | 15m+1H | 1 slot | lev 5x | sizing % equity | SL 0.8%');
+      log(`🎯 SWING SNIPER | 15m+1H | 1 slot | lev 5x | sizing % equity | SL 0.8%${DRY_RUN ? ' | 🧪 DRY_RUN' : ''}`);
     }
 
     // FORCE sniper config — ignora qualquer BOT_SETTINGS antigo em memória
@@ -292,6 +296,22 @@ module.exports = async function runBot() {
 
       if (!candles15m?.length) { log('⚠️ sem candles'); continue; }
 
+      // ── DIAGNÓSTICO: verificar lag dos candles ──
+      {
+        const lastC = candles15m[candles15m.length - 1];
+        const lastTs = lastC.ts || lastC[0] || 0;
+        const lastClose = lastC.c ?? (Array.isArray(lastC) ? +lastC[4] : null);
+        const lagMin = lastTs > 0 ? (Date.now() - lastTs) / 60000 : -1;
+        log(`🕐 ${sym} 15m: última vela há ${lagMin.toFixed(1)}min close:${lastClose}`);
+      }
+      if (candles1h?.length) {
+        const lastC = candles1h[candles1h.length - 1];
+        const lastTs = lastC.ts || lastC[0] || 0;
+        const lastClose = lastC.c ?? (Array.isArray(lastC) ? +lastC[4] : null);
+        const lagMin = lastTs > 0 ? (Date.now() - lastTs) / 60000 : -1;
+        log(`🕐 ${sym} 1H:  última vela há ${lagMin.toFixed(1)}min close:${lastClose}`);
+      }
+
       const closes = candles15m.map(c => typeof c === 'object' && !Array.isArray(c) ? c.c : +c[4]).filter(v => v && !isNaN(v));
       if (closes.length < 50) continue;
 
@@ -351,7 +371,12 @@ module.exports = async function runBot() {
 
       const marginUsed = orderValue / lev;
       const equityPct = (marginUsed / equity) * 100;
-      log(`🎯 ${decision.side} conf:${confidence.toFixed(2)} str:${strength.toFixed(2)} margem:$${marginUsed.toFixed(2)} (${equityPct.toFixed(1)}% eq) not:$${orderValue.toFixed(2)} qty:${qty}`);
+      log(`🎯 ${decision.side} conf:${confidence.toFixed(2)} str:${strength.toFixed(2)} margem:$${marginUsed.toFixed(2)} (${equityPct.toFixed(1)}% eq) not:$${orderValue.toFixed(2)} qty:${qty} price:${price}`);
+
+      if (DRY_RUN) {
+        log(`🧪 DRY_RUN — ordem bloqueada (${decision.side} ${sym} @ ${price})`);
+        continue;
+      }
 
       const data = await callApi(base, {
         action: 'order', symbol: sym, side: decision.side,
